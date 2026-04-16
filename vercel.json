@@ -1,5 +1,7 @@
 {
-  "buildCommand": "npm install",
+  "framework": null,
+  "installCommand": "npm install",
+  "buildCommand": "",
   "outputDirectory": "public",
   "crons": [
     {
