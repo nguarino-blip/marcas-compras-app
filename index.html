@@ -202,8 +202,8 @@ const SUPABASE_URL = 'https://xgdzzndfpxfghixsngas.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhnZHp6bmRmcHhmZ2hpeHNuZ2FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNjMyMzksImV4cCI6MjA5MTkzOTIzOX0.UioTkXAb3ESiNmKOxpWuDoOtq1ve7258ZV_3Z_mZbt0';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-const MARCAS = ['Cannon','La Valette','Hugs','IOV','Arden for Men','Fragancias de Autor',
-  'Kevingston','Tabu','Grafiti','Seduction','1810','Chocolate'];
+const MARCAS = ['Cher Fragancias','Cher Beauty','Bensimon','Fascino','Tucci','Sarkany',
+  'Margarita','Oreiro Love','L\'Inedito','Al Shams','Get the Look'];
 
 const STATUS_LIST = [
   'Pendiente aprobación Compras','Info solicitada','En búsqueda de proveedores',
@@ -405,7 +405,7 @@ async function loadSolicitudFull(id) {
 // PERMISSIONS
 // =============================================
 function canCreateSolicitud() {
-  return currentProfile?.role === 'marcas';
+  return currentProfile?.role === 'marcas' || currentProfile?.role === 'compras';
 }
 function canApprove() {
   return currentProfile?.can_approve_solicitud === true;
@@ -599,7 +599,14 @@ function openNewSolicitud() {
     <div class="row">
       <div class="field">
         <label>Marca</label>
-        <select id="nsMarca">${MARCAS.map(m => `<option>${m}</option>`).join('')}</select>
+        <select id="nsMarca" onchange="toggleOtraMarca()">
+          ${MARCAS.map(m => `<option>${m}</option>`).join('')}
+          <option value="__otra__">Otra...</option>
+        </select>
+      </div>
+      <div class="field hidden" id="otraMarcaField">
+        <label>Nombre de la marca</label>
+        <input id="nsMarcaOtra" placeholder="Escribí el nombre de la marca">
       </div>
       <div class="field">
         <label>Nombre del desarrollo</label>
@@ -656,6 +663,11 @@ function openNewSolicitud() {
   addItemField(); // Add first item by default
 }
 
+function toggleOtraMarca() {
+  const v = document.getElementById('nsMarca').value;
+  document.getElementById('otraMarcaField').classList.toggle('hidden', v !== '__otra__');
+}
+
 function toggleCotizNombre() {
   const v = document.getElementById('nsCotiz').value;
   document.getElementById('cotizNombreField').classList.toggle('hidden', v !== 'conjunto');
@@ -691,7 +703,8 @@ function addItemField() {
 
 async function submitSolicitud() {
   const tipo = document.getElementById('nsTipo').value;
-  const marca = document.getElementById('nsMarca').value;
+  const marcaSel = document.getElementById('nsMarca').value;
+  const marca = marcaSel === '__otra__' ? document.getElementById('nsMarcaOtra').value.trim() : marcaSel;
   const nombre = document.getElementById('nsNombre').value.trim();
   const desc = document.getElementById('nsDesc').value.trim();
   const sellIn = document.getElementById('nsSellIn').value || null;
@@ -702,9 +715,11 @@ async function submitSolicitud() {
   const linksRaw = document.getElementById('nsLinks').value.trim();
   const links = linksRaw ? linksRaw.split(',').map(l => l.trim()).filter(Boolean) : [];
 
+  if (!marca) return toast('Seleccioná una marca', true);
   if (!nombre) return toast('Completá el nombre del desarrollo', true);
   if (!lanzamiento) return toast('La fecha de lanzamiento es obligatoria', true);
 
+  try {
   // Collect items
   const itemNames = document.querySelectorAll('.item-name');
   const itemTipos = document.querySelectorAll('.item-tipo');
@@ -769,6 +784,10 @@ async function submitSolicitud() {
   await loadSolicitudes();
   switchTab('dashboard');
   toast('Solicitud creada exitosamente');
+  } catch (err) {
+    console.error('Error creando solicitud:', err);
+    toast('Error al crear solicitud: ' + (err.message || err), true);
+  }
 }
 
 // =============================================
