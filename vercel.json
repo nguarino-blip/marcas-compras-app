@@ -1,0 +1,14 @@
+{
+  "buildCommand": "npm install",
+  "outputDirectory": "public",
+  "crons": [
+    {
+      "path": "/api/check-reminders",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/weekly-report",
+      "schedule": "0 9 * * 1"
+    }
+  ]
+}
