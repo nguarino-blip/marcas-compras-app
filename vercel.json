@@ -1,8 +1,5 @@
 {
   "framework": null,
-  "installCommand": "npm install",
-  "buildCommand": "",
-  "outputDirectory": "public",
   "crons": [
     {
       "path": "/api/check-reminders",
