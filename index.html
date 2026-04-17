@@ -100,6 +100,33 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);}
 .tipo-btn .tipo-title{font-size:14px;font-weight:700;color:var(--gold);margin-bottom:2px;}
 .tipo-btn .tipo-desc{font-size:12px;color:var(--txt2);line-height:1.4;}
 
+/* KPI clickable */
+.kpi.clickable{cursor:pointer;transition:all .2s;} .kpi.clickable:hover{border-color:var(--gold);transform:translateY(-2px);}
+
+/* Semáforo */
+.semaforo-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:24px;}
+.semaforo-col{border-radius:var(--radius);padding:14px;min-height:80px;}
+.semaforo-col.verde{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);}
+.semaforo-col.amarillo{background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.25);}
+.semaforo-col.rojo{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);}
+.semaforo-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.semaforo-dot{width:14px;height:14px;border-radius:50%;flex-shrink:0;}
+.semaforo-col.verde .semaforo-dot{background:var(--green);}
+.semaforo-col.amarillo .semaforo-dot{background:var(--orange);}
+.semaforo-col.rojo .semaforo-dot{background:var(--red);}
+.semaforo-title{font-size:13px;font-weight:700;}
+.semaforo-col.verde .semaforo-title{color:var(--green);}
+.semaforo-col.amarillo .semaforo-title{color:var(--orange);}
+.semaforo-col.rojo .semaforo-title{color:var(--red);}
+.semaforo-count{font-size:22px;font-weight:800;margin-left:auto;}
+.semaforo-col.verde .semaforo-count{color:var(--green);}
+.semaforo-col.amarillo .semaforo-count{color:var(--orange);}
+.semaforo-col.rojo .semaforo-count{color:var(--red);}
+.semaforo-item{font-size:12px;padding:6px 8px;margin-bottom:4px;border-radius:6px;background:rgba(255,255,255,.03);cursor:pointer;transition:background .2s;}
+.semaforo-item:hover{background:rgba(255,255,255,.08);}
+.semaforo-item .sol-name{font-weight:600;color:var(--txt);}
+.semaforo-item .sol-paso{color:var(--txt2);margin-top:2px;}
+
 /* Items table */
 .items-table{width:100%;border-collapse:collapse;}
 .items-table th{background:var(--bg3);color:var(--txt2);padding:8px;font-size:12px;text-align:left;}
@@ -320,6 +347,7 @@ const RETROPLAN_TEMPLATES = {
 let currentUser = null;
 let currentProfile = null;
 let solicitudes = [];
+let allPendingPasos = [];
 let currentTab = 'dashboard';
 let viewingSolicitud = null;
 
@@ -410,6 +438,19 @@ async function loadSolicitudes() {
     .select('*, profiles!solicitudes_created_by_fkey(full_name, email, role)')
     .order('created_at', { ascending: false });
   if (!error) solicitudes = data || [];
+
+  // Load retroplan pasos for all active solicitudes (for semáforo)
+  const activeIds = solicitudes.filter(s => !['Completado','Rechazada'].includes(s.status)).map(s => s.id);
+  if (activeIds.length) {
+    const { data: pasos } = await sb.from('retroplan_pasos')
+      .select('solicitud_id, nombre, fecha_objetivo, completado, responsable')
+      .in('solicitud_id', activeIds)
+      .eq('completado', false)
+      .order('orden');
+    allPendingPasos = pasos || [];
+  } else {
+    allPendingPasos = [];
+  }
 }
 
 async function loadSolicitudFull(id) {
@@ -502,18 +543,51 @@ function renderDashboard(c) {
   const myPending = solicitudes.filter(s => {
     if (isMarcas()) return s.status.includes('Marcas') && s.created_by === currentUser.id;
     if (isCalidad()) return s.status.includes('Calidad') || s.status.includes('Inspección');
-    if (isComex()) return s.status.includes('Comex') || s.status === 'En tránsito';
-    if (isCompras()) return ['Pendiente aprobación Compras','En búsqueda de proveedores','Retroplan propuesto','Esperando muestras estéticas','Esperando muestras técnicas','Aprobada - Lista para OC','OC emitida'].includes(s.status);
+    if (isComex()) return ['Comex - Proforma y pago','Orden de producción','Booking shipping','En tránsito','Nacionalización'].includes(s.status);
+    if (isCompras()) return ['Pendiente aprobación Compras','En búsqueda de proveedores','Retroplan propuesto','Esperando muestras estéticas','Esperando muestras técnicas','Aprobada - Lista para OC','OC emitida','En producción'].includes(s.status);
     return false;
   });
+
+  // Semáforo: calcular estado de cada solicitud activa
+  const semaforo = calcularSemaforo(activas);
 
   c.innerHTML = `
     <div class="kpi-row">
       <div class="kpi"><div class="num">${activas.length}</div><div class="label">Activas</div></div>
-      <div class="kpi"><div class="num" style="color:var(--orange)">${pending.length}</div><div class="label">Pendientes Aprobación</div></div>
-      <div class="kpi"><div class="num" style="color:var(--violet)">${myPending.length}</div><div class="label">Requieren tu acción</div></div>
+      <div class="kpi clickable" onclick="showDashboardList('pending')"><div class="num" style="color:var(--orange)">${pending.length}</div><div class="label">Pendientes Aprobación</div></div>
+      <div class="kpi clickable" onclick="showDashboardList('myPending')"><div class="num" style="color:var(--violet)">${myPending.length}</div><div class="label">Requieren tu acción</div></div>
       <div class="kpi"><div class="num" style="color:var(--green)">${solicitudes.filter(s=>s.status==='Completado').length}</div><div class="label">Completadas</div></div>
     </div>
+
+    <h3 style="color:var(--gold);margin-bottom:12px;">Semáforo de tiempos</h3>
+    <div class="semaforo-row">
+      <div class="semaforo-col verde">
+        <div class="semaforo-header">
+          <div class="semaforo-dot"></div>
+          <div class="semaforo-title">En tiempo</div>
+          <div class="semaforo-count">${semaforo.verde.length}</div>
+        </div>
+        ${semaforo.verde.slice(0, 5).map(x => semaforoItem(x)).join('')}
+        ${semaforo.verde.length > 5 ? `<div style="font-size:11px;color:var(--txt2);padding:4px 8px;">+${semaforo.verde.length - 5} más</div>` : ''}
+      </div>
+      <div class="semaforo-col amarillo">
+        <div class="semaforo-header">
+          <div class="semaforo-dot"></div>
+          <div class="semaforo-title">Próximo a vencer</div>
+          <div class="semaforo-count">${semaforo.amarillo.length}</div>
+        </div>
+        ${semaforo.amarillo.map(x => semaforoItem(x)).join('') || '<div style="font-size:12px;color:var(--txt2);padding:4px;">Sin alertas</div>'}
+      </div>
+      <div class="semaforo-col rojo">
+        <div class="semaforo-header">
+          <div class="semaforo-dot"></div>
+          <div class="semaforo-title">Vencido / Sin tiempo</div>
+          <div class="semaforo-count">${semaforo.rojo.length}</div>
+        </div>
+        ${semaforo.rojo.map(x => semaforoItem(x)).join('') || '<div style="font-size:12px;color:var(--txt2);padding:4px;">Sin alertas</div>'}
+      </div>
+    </div>
+
     ${canCreateSolicitud() ? `
     <div class="tipo-btns">
       <div class="tipo-btn" onclick="openNewSolicitud('Nuevos desarrollos')">
@@ -537,13 +611,93 @@ function renderDashboard(c) {
         <div class="tipo-desc">Reposición de stock e insumos recurrentes</div>
       </div>
     </div>` : ''}
-    <h3 style="color:var(--gold);margin-bottom:12px;">Requieren tu acción</h3>
-    <div class="grid grid-2">
-      ${myPending.length ? myPending.map(s => solicitudCard(s)).join('') : '<p style="color:var(--txt2)">Sin pendientes</p>'}
+
+    <div id="dashboardListSection">
+      <h3 style="color:var(--gold);margin-bottom:12px;">Requieren tu acción</h3>
+      <div class="grid grid-2">
+        ${myPending.length ? myPending.map(s => solicitudCard(s)).join('') : '<p style="color:var(--txt2)">Sin pendientes</p>'}
+      </div>
     </div>
     <h3 style="color:var(--gold);margin:20px 0 12px;">Últimas solicitudes</h3>
     <div class="grid grid-2">
       ${solicitudes.slice(0, 6).map(s => solicitudCard(s)).join('')}
+    </div>`;
+
+  // Sync semáforo to Google Sheets (async, non-blocking)
+  syncSemaforoToSheets(semaforo).catch(e => console.warn('Semáforo sheets sync:', e));
+}
+
+function calcularSemaforo(activas) {
+  const verde = [], amarillo = [], rojo = [];
+
+  activas.forEach(s => {
+    // Get pending pasos for this solicitud, sorted by order
+    const pasos = allPendingPasos.filter(p => p.solicitud_id === s.id);
+    if (!pasos.length) { verde.push({ sol: s, paso: null, dias: null, detalle: 'Sin pasos pendientes' }); return; }
+
+    // Find the NEXT pending paso (first one not completed)
+    const next = pasos[0];
+    const dias = daysUntil(next.fecha_objetivo);
+
+    const responsableLabel = {
+      'marcas': 'Marcas', 'compras': 'Compras', 'comex': 'Comex',
+      'calidad': 'Calidad', 'conjunto': 'Conjunto'
+    }[next.responsable] || next.responsable || '';
+
+    const entry = {
+      sol: s,
+      paso: next.nombre,
+      dias,
+      responsable: responsableLabel,
+      detalle: `${next.nombre} (${responsableLabel})`
+    };
+
+    if (dias === null || dias > 10) {
+      verde.push(entry);
+    } else if (dias > 0) {
+      amarillo.push(entry);
+    } else {
+      rojo.push(entry);
+    }
+  });
+
+  // Sort: más urgente primero
+  amarillo.sort((a, b) => (a.dias ?? 999) - (b.dias ?? 999));
+  rojo.sort((a, b) => (a.dias ?? 999) - (b.dias ?? 999));
+
+  return { verde, amarillo, rojo };
+}
+
+function semaforoItem(x) {
+  const diasText = x.dias === null ? '' : x.dias === 0 ? 'Vence hoy' : x.dias > 0 ? `${x.dias}d restantes` : `Vencido hace ${Math.abs(x.dias)}d`;
+  return `<div class="semaforo-item" onclick="openSolicitud('${x.sol.id}')">
+    <div class="sol-name">#${x.sol.numero} ${x.sol.nombre}</div>
+    <div class="sol-paso">Pendiente: ${x.detalle} ${diasText ? '— ' + diasText : ''}</div>
+  </div>`;
+}
+
+function showDashboardList(type) {
+  const section = document.getElementById('dashboardListSection');
+  if (!section) return;
+  let list = [];
+  let title = '';
+  if (type === 'pending') {
+    list = solicitudes.filter(s => s.status === 'Pendiente aprobación Compras');
+    title = 'Pendientes de aprobación';
+  } else if (type === 'myPending') {
+    list = solicitudes.filter(s => {
+      if (isMarcas()) return s.status.includes('Marcas') && s.created_by === currentUser.id;
+      if (isCalidad()) return s.status.includes('Calidad') || s.status.includes('Inspección');
+      if (isComex()) return ['Comex - Proforma y pago','Orden de producción','Booking shipping','En tránsito','Nacionalización'].includes(s.status);
+      if (isCompras()) return ['Pendiente aprobación Compras','En búsqueda de proveedores','Retroplan propuesto','Esperando muestras estéticas','Esperando muestras técnicas','Aprobada - Lista para OC','OC emitida','En producción'].includes(s.status);
+      return false;
+    });
+    title = 'Requieren tu acción';
+  }
+  section.innerHTML = `
+    <h3 style="color:var(--gold);margin-bottom:12px;">${title} (${list.length})</h3>
+    <div class="grid grid-2">
+      ${list.length ? list.map(s => solicitudCard(s)).join('') : '<p style="color:var(--txt2)">Sin solicitudes</p>'}
     </div>`;
 }
 
@@ -2031,6 +2185,39 @@ function wrapEmail(body) {
     <div style="padding:20px;background:#f9f9f9;border-radius:0 0 8px 8px;">${body}</div>
     <div style="padding:8px 20px;text-align:center;"><small style="color:#999;">Sistema de gestión CDimex</small></div>
   </div>`;
+}
+
+// =============================================
+// SEMÁFORO → GOOGLE SHEETS SYNC
+// =============================================
+async function syncSemaforoToSheets(semaforo) {
+  const rows = [];
+  const today = new Date().toISOString().split('T')[0];
+
+  [...semaforo.amarillo, ...semaforo.rojo].forEach(x => {
+    rows.push([
+      today,
+      x.sol.numero || '',
+      x.sol.nombre || '',
+      x.sol.marca || '',
+      x.sol.tipo || '',
+      x.sol.status || '',
+      x.paso || '',
+      x.responsable || '',
+      x.dias ?? '',
+      x.dias !== null && x.dias <= 0 ? 'ROJO' : 'AMARILLO'
+    ]);
+  });
+
+  if (!rows.length) return;
+
+  try {
+    await fetch('/api/semaforo-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': 'cdimex-internal-2024' },
+      body: JSON.stringify({ rows })
+    });
+  } catch (e) { console.warn('Semáforo sync error:', e); }
 }
 
 // =============================================
