@@ -92,41 +92,6 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);}
 .section h3{color:var(--gold);font-size:15px;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border);}
 .action-bar{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0;}
 
-/* Type buttons grid */
-.tipo-btns{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:20px;}
-.tipo-btn{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:18px 16px;cursor:pointer;transition:all .25s;text-align:left;}
-.tipo-btn:hover{border-color:var(--gold);transform:translateY(-2px);box-shadow:0 4px 16px rgba(240,192,64,.12);}
-.tipo-btn .tipo-icon{font-size:24px;margin-bottom:6px;}
-.tipo-btn .tipo-title{font-size:14px;font-weight:700;color:var(--gold);margin-bottom:2px;}
-.tipo-btn .tipo-desc{font-size:12px;color:var(--txt2);line-height:1.4;}
-
-/* KPI clickable */
-.kpi.clickable{cursor:pointer;transition:all .2s;} .kpi.clickable:hover{border-color:var(--gold);transform:translateY(-2px);}
-
-/* Semáforo */
-.semaforo-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:24px;}
-.semaforo-col{border-radius:var(--radius);padding:14px;min-height:80px;}
-.semaforo-col.verde{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);}
-.semaforo-col.amarillo{background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.25);}
-.semaforo-col.rojo{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);}
-.semaforo-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
-.semaforo-dot{width:14px;height:14px;border-radius:50%;flex-shrink:0;}
-.semaforo-col.verde .semaforo-dot{background:var(--green);}
-.semaforo-col.amarillo .semaforo-dot{background:var(--orange);}
-.semaforo-col.rojo .semaforo-dot{background:var(--red);}
-.semaforo-title{font-size:13px;font-weight:700;}
-.semaforo-col.verde .semaforo-title{color:var(--green);}
-.semaforo-col.amarillo .semaforo-title{color:var(--orange);}
-.semaforo-col.rojo .semaforo-title{color:var(--red);}
-.semaforo-count{font-size:22px;font-weight:800;margin-left:auto;}
-.semaforo-col.verde .semaforo-count{color:var(--green);}
-.semaforo-col.amarillo .semaforo-count{color:var(--orange);}
-.semaforo-col.rojo .semaforo-count{color:var(--red);}
-.semaforo-item{font-size:12px;padding:6px 8px;margin-bottom:4px;border-radius:6px;background:rgba(255,255,255,.03);cursor:pointer;transition:background .2s;}
-.semaforo-item:hover{background:rgba(255,255,255,.08);}
-.semaforo-item .sol-name{font-weight:600;color:var(--txt);}
-.semaforo-item .sol-paso{color:var(--txt2);margin-top:2px;}
-
 /* Items table */
 .items-table{width:100%;border-collapse:collapse;}
 .items-table th{background:var(--bg3);color:var(--txt2);padding:8px;font-size:12px;text-align:left;}
@@ -237,17 +202,15 @@ const SUPABASE_URL = 'https://xgdzzndfpxfghixsngas.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhnZHp6bmRmcHhmZ2hpeHNuZ2FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNjMyMzksImV4cCI6MjA5MTkzOTIzOX0.UioTkXAb3ESiNmKOxpWuDoOtq1ve7258ZV_3Z_mZbt0';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
-const MARCAS = ['Cher Fragancias','Cher Beauty','Bensimon','Fascino','Tucci','Sarkany',
-  'Margarita','Oreiro Love','L\'Inedito','Al Shams','Get the Look'];
+const MARCAS = ['Cannon','La Valette','Hugs','IOV','Arden for Men','Fragancias de Autor',
+  'Kevingston','Tabu','Grafiti','Seduction','1810','Chocolate'];
 
 const STATUS_LIST = [
   'Pendiente aprobación Compras','Info solicitada','En búsqueda de proveedores',
   'Retroplan propuesto','Esperando muestras estéticas','Pendiente aprobación estética (Marcas)',
   'Esperando muestras técnicas','Pendiente aprobación Calidad',
-  'Aprobada - Lista para OC','OC emitida',
-  'Comex - Proforma y pago','Orden de producción','En producción',
-  'Inspección pre-embarque','Booking shipping',
-  'En tránsito','Nacionalización','Completado','Rechazada'
+  'Inspección pre-embarque','Aprobada - Lista para OC','OC emitida',
+  'Comex - Pago y seguimiento','En tránsito','Completado','Rechazada'
 ];
 
 const STATUS_PILL_CLASS = {
@@ -255,88 +218,71 @@ const STATUS_PILL_CLASS = {
   'En búsqueda de proveedores':'pill-active','Retroplan propuesto':'pill-active',
   'Esperando muestras estéticas':'pill-active','Pendiente aprobación estética (Marcas)':'pill-marcas',
   'Esperando muestras técnicas':'pill-active','Pendiente aprobación Calidad':'pill-calidad',
-  'Aprobada - Lista para OC':'pill-approved','OC emitida':'pill-approved',
-  'Comex - Proforma y pago':'pill-comex','Orden de producción':'pill-comex',
-  'En producción':'pill-active','Inspección pre-embarque':'pill-calidad',
-  'Booking shipping':'pill-comex','En tránsito':'pill-comex',
-  'Nacionalización':'pill-comex','Completado':'pill-approved','Rechazada':'pill-rejected'
+  'Inspección pre-embarque':'pill-calidad','Aprobada - Lista para OC':'pill-approved',
+  'OC emitida':'pill-approved','Comex - Pago y seguimiento':'pill-comex',
+  'En tránsito':'pill-comex','Completado':'pill-approved','Rechazada':'pill-rejected'
 };
 
-const PROD_DAYS = {'Frasco vidrio':48,'Frasco plástico':40,'Estuche':35,'Insumo':30,'GWP':30,'Otro':45};
+const PROD_DAYS = {'Frasco vidrio':48,'Frasco plástico':40,'Estuche':35,'Tapa':30,'Válvula':30,'Etiqueta':20,'Otro':45};
 
 const RETROPLAN_TEMPLATES = {
   'Nuevos desarrollos': [
-    {nombre:'Sell-in',dias:270,responsable:'marcas'},
-    {nombre:'Brief / Solicitud',dias:260,responsable:'marcas'},
-    {nombre:'Aprobación Compras',dias:255,responsable:'compras'},
-    {nombre:'Búsqueda Shortlist proveedores',dias:250,responsable:'compras'},
-    {nombre:'Cotización y negociación',dias:240,responsable:'__COTIZ__'},
-    {nombre:'Muestras estéticas',dias:220,responsable:'compras'},
-    {nombre:'Aprobación estética (Marcas)',dias:210,responsable:'marcas'},
-    {nombre:'Muestras técnicas',dias:200,responsable:'compras'},
-    {nombre:'Aprobación Calidad',dias:190,responsable:'calidad'},
-    {nombre:'Emisión OC',dias:185,responsable:'compras'},
-    {nombre:'Proforma invoice y pago',dias:180,responsable:'comex'},
-    {nombre:'Orden de producción',dias:175,responsable:'comex'},
-    {nombre:'Producción',dias:170,responsable:'compras'},
-    {nombre:'Inspección pre-embarque',dias:50,responsable:'calidad'},
-    {nombre:'Booking shipping',dias:45,responsable:'comex'},
-    {nombre:'Shipping / Tránsito',dias:40,responsable:'comex'},
-    {nombre:'Nacionalización',dias:5,responsable:'comex'},
+    {nombre:'Sell-in',dias:180,responsable:'marcas'},
+    {nombre:'Brief / Solicitud',dias:170,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:165,responsable:'compras'},
+    {nombre:'Búsqueda Shortlist proveedores',dias:160,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:150,responsable:'__COTIZ__'},
+    {nombre:'Muestras estéticas',dias:135,responsable:'compras'},
+    {nombre:'Aprobación estética (Marcas)',dias:125,responsable:'marcas'},
+    {nombre:'Muestras técnicas',dias:115,responsable:'compras'},
+    {nombre:'Aprobación Calidad',dias:105,responsable:'calidad'},
+    {nombre:'Inspección pre-embarque',dias:95,responsable:'calidad'},
+    {nombre:'OC y pago',dias:85,responsable:'compras'},
+    {nombre:'Producción',dias:80,responsable:'compras'},
+    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
     {nombre:'Recepción',dias:0,responsable:'compras'}
   ],
   'Cambio de proveedor': [
-    {nombre:'Sell-in',dias:240,responsable:'marcas'},
-    {nombre:'Brief / Solicitud',dias:230,responsable:'marcas'},
-    {nombre:'Aprobación Compras',dias:225,responsable:'compras'},
-    {nombre:'Búsqueda Shortlist proveedores',dias:220,responsable:'compras'},
-    {nombre:'Cotización y negociación',dias:210,responsable:'__COTIZ__'},
-    {nombre:'Muestras estéticas',dias:195,responsable:'compras'},
-    {nombre:'Aprobación estética (Marcas)',dias:185,responsable:'marcas'},
-    {nombre:'Muestras técnicas',dias:175,responsable:'compras'},
-    {nombre:'Aprobación Calidad',dias:165,responsable:'calidad'},
-    {nombre:'Emisión OC',dias:160,responsable:'compras'},
-    {nombre:'Proforma invoice y pago',dias:155,responsable:'comex'},
-    {nombre:'Orden de producción',dias:150,responsable:'comex'},
-    {nombre:'Producción',dias:145,responsable:'compras'},
-    {nombre:'Inspección pre-embarque',dias:50,responsable:'calidad'},
-    {nombre:'Booking shipping',dias:45,responsable:'comex'},
-    {nombre:'Shipping / Tránsito',dias:40,responsable:'comex'},
-    {nombre:'Nacionalización',dias:5,responsable:'comex'},
+    {nombre:'Sell-in',dias:150,responsable:'marcas'},
+    {nombre:'Brief / Solicitud',dias:140,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:135,responsable:'compras'},
+    {nombre:'Búsqueda Shortlist proveedores',dias:130,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:120,responsable:'__COTIZ__'},
+    {nombre:'Muestras estéticas',dias:105,responsable:'compras'},
+    {nombre:'Aprobación estética (Marcas)',dias:95,responsable:'marcas'},
+    {nombre:'Muestras técnicas',dias:85,responsable:'compras'},
+    {nombre:'Aprobación Calidad',dias:75,responsable:'calidad'},
+    {nombre:'Inspección pre-embarque',dias:65,responsable:'calidad'},
+    {nombre:'OC y pago',dias:55,responsable:'compras'},
+    {nombre:'Producción',dias:50,responsable:'compras'},
+    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
     {nombre:'Recepción',dias:0,responsable:'compras'}
   ],
   'Traspaso compra local al exterior': [
-    {nombre:'Sell-in',dias:230,responsable:'marcas'},
-    {nombre:'Brief / Solicitud',dias:220,responsable:'marcas'},
-    {nombre:'Aprobación Compras',dias:215,responsable:'compras'},
-    {nombre:'Búsqueda Shortlist proveedores',dias:210,responsable:'compras'},
-    {nombre:'Cotización y negociación',dias:200,responsable:'__COTIZ__'},
-    {nombre:'Muestras estéticas',dias:185,responsable:'compras'},
-    {nombre:'Aprobación estética (Marcas)',dias:175,responsable:'marcas'},
-    {nombre:'Muestras técnicas',dias:165,responsable:'compras'},
-    {nombre:'Aprobación Calidad',dias:155,responsable:'calidad'},
-    {nombre:'Emisión OC',dias:150,responsable:'compras'},
-    {nombre:'Proforma invoice y pago',dias:145,responsable:'comex'},
-    {nombre:'Orden de producción',dias:140,responsable:'comex'},
-    {nombre:'Producción',dias:135,responsable:'compras'},
-    {nombre:'Inspección pre-embarque',dias:50,responsable:'calidad'},
-    {nombre:'Booking shipping',dias:45,responsable:'comex'},
-    {nombre:'Shipping / Tránsito',dias:40,responsable:'comex'},
-    {nombre:'Nacionalización',dias:5,responsable:'comex'},
+    {nombre:'Sell-in',dias:140,responsable:'marcas'},
+    {nombre:'Brief / Solicitud',dias:130,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:125,responsable:'compras'},
+    {nombre:'Búsqueda Shortlist proveedores',dias:120,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:110,responsable:'__COTIZ__'},
+    {nombre:'Muestras estéticas',dias:95,responsable:'compras'},
+    {nombre:'Aprobación estética (Marcas)',dias:85,responsable:'marcas'},
+    {nombre:'Muestras técnicas',dias:75,responsable:'compras'},
+    {nombre:'Aprobación Calidad',dias:65,responsable:'calidad'},
+    {nombre:'Inspección pre-embarque',dias:55,responsable:'calidad'},
+    {nombre:'OC y pago',dias:45,responsable:'compras'},
+    {nombre:'Producción',dias:40,responsable:'compras'},
+    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
     {nombre:'Recepción',dias:0,responsable:'compras'}
   ],
   'Compras regulares': [
-    {nombre:'Brief / Solicitud',dias:200,responsable:'marcas'},
-    {nombre:'Aprobación Compras',dias:195,responsable:'compras'},
-    {nombre:'Cotización y negociación',dias:185,responsable:'__COTIZ__'},
-    {nombre:'Emisión OC',dias:175,responsable:'compras'},
-    {nombre:'Proforma invoice y pago',dias:170,responsable:'comex'},
-    {nombre:'Orden de producción',dias:165,responsable:'comex'},
-    {nombre:'Producción',dias:160,responsable:'compras'},
-    {nombre:'Inspección pre-embarque',dias:50,responsable:'calidad'},
-    {nombre:'Booking shipping',dias:45,responsable:'comex'},
-    {nombre:'Shipping / Tránsito',dias:40,responsable:'comex'},
-    {nombre:'Nacionalización',dias:5,responsable:'comex'},
+    {nombre:'Sell-in',dias:120,responsable:'marcas'},
+    {nombre:'Brief / Solicitud',dias:110,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:105,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:95,responsable:'__COTIZ__'},
+    {nombre:'Inspección pre-embarque',dias:65,responsable:'calidad'},
+    {nombre:'OC y pago',dias:55,responsable:'compras'},
+    {nombre:'Producción',dias:50,responsable:'compras'},
+    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
     {nombre:'Recepción',dias:0,responsable:'compras'}
   ]
 };
@@ -347,7 +293,6 @@ const RETROPLAN_TEMPLATES = {
 let currentUser = null;
 let currentProfile = null;
 let solicitudes = [];
-let allPendingPasos = [];
 let currentTab = 'dashboard';
 let viewingSolicitud = null;
 
@@ -438,19 +383,6 @@ async function loadSolicitudes() {
     .select('*, profiles!solicitudes_created_by_fkey(full_name, email, role)')
     .order('created_at', { ascending: false });
   if (!error) solicitudes = data || [];
-
-  // Load retroplan pasos for all active solicitudes (for semáforo)
-  const activeIds = solicitudes.filter(s => !['Completado','Rechazada'].includes(s.status)).map(s => s.id);
-  if (activeIds.length) {
-    const { data: pasos } = await sb.from('retroplan_pasos')
-      .select('solicitud_id, nombre, fecha_objetivo, completado, responsable')
-      .in('solicitud_id', activeIds)
-      .eq('completado', false)
-      .order('orden');
-    allPendingPasos = pasos || [];
-  } else {
-    allPendingPasos = [];
-  }
 }
 
 async function loadSolicitudFull(id) {
@@ -473,7 +405,7 @@ async function loadSolicitudFull(id) {
 // PERMISSIONS
 // =============================================
 function canCreateSolicitud() {
-  return currentProfile?.role === 'marcas' || currentProfile?.role === 'compras';
+  return currentProfile?.role === 'marcas';
 }
 function canApprove() {
   return currentProfile?.can_approve_solicitud === true;
@@ -543,161 +475,26 @@ function renderDashboard(c) {
   const myPending = solicitudes.filter(s => {
     if (isMarcas()) return s.status.includes('Marcas') && s.created_by === currentUser.id;
     if (isCalidad()) return s.status.includes('Calidad') || s.status.includes('Inspección');
-    if (isComex()) return ['Comex - Proforma y pago','Orden de producción','Booking shipping','En tránsito','Nacionalización'].includes(s.status);
-    if (isCompras()) return ['Pendiente aprobación Compras','En búsqueda de proveedores','Retroplan propuesto','Esperando muestras estéticas','Esperando muestras técnicas','Aprobada - Lista para OC','OC emitida','En producción'].includes(s.status);
+    if (isComex()) return s.status.includes('Comex') || s.status === 'En tránsito';
+    if (isCompras()) return ['Pendiente aprobación Compras','En búsqueda de proveedores','Retroplan propuesto','Esperando muestras estéticas','Esperando muestras técnicas','Aprobada - Lista para OC','OC emitida'].includes(s.status);
     return false;
   });
-
-  // Semáforo: calcular estado de cada solicitud activa
-  const semaforo = calcularSemaforo(activas);
 
   c.innerHTML = `
     <div class="kpi-row">
       <div class="kpi"><div class="num">${activas.length}</div><div class="label">Activas</div></div>
-      <div class="kpi clickable" onclick="showDashboardList('pending')"><div class="num" style="color:var(--orange)">${pending.length}</div><div class="label">Pendientes Aprobación</div></div>
-      <div class="kpi clickable" onclick="showDashboardList('myPending')"><div class="num" style="color:var(--violet)">${myPending.length}</div><div class="label">Requieren tu acción</div></div>
+      <div class="kpi"><div class="num" style="color:var(--orange)">${pending.length}</div><div class="label">Pendientes Aprobación</div></div>
+      <div class="kpi"><div class="num" style="color:var(--violet)">${myPending.length}</div><div class="label">Requieren tu acción</div></div>
       <div class="kpi"><div class="num" style="color:var(--green)">${solicitudes.filter(s=>s.status==='Completado').length}</div><div class="label">Completadas</div></div>
     </div>
-
-    <h3 style="color:var(--gold);margin-bottom:12px;">Semáforo de tiempos</h3>
-    <div class="semaforo-row">
-      <div class="semaforo-col verde">
-        <div class="semaforo-header">
-          <div class="semaforo-dot"></div>
-          <div class="semaforo-title">En tiempo</div>
-          <div class="semaforo-count">${semaforo.verde.length}</div>
-        </div>
-        ${semaforo.verde.slice(0, 5).map(x => semaforoItem(x)).join('')}
-        ${semaforo.verde.length > 5 ? `<div style="font-size:11px;color:var(--txt2);padding:4px 8px;">+${semaforo.verde.length - 5} más</div>` : ''}
-      </div>
-      <div class="semaforo-col amarillo">
-        <div class="semaforo-header">
-          <div class="semaforo-dot"></div>
-          <div class="semaforo-title">Próximo a vencer</div>
-          <div class="semaforo-count">${semaforo.amarillo.length}</div>
-        </div>
-        ${semaforo.amarillo.map(x => semaforoItem(x)).join('') || '<div style="font-size:12px;color:var(--txt2);padding:4px;">Sin alertas</div>'}
-      </div>
-      <div class="semaforo-col rojo">
-        <div class="semaforo-header">
-          <div class="semaforo-dot"></div>
-          <div class="semaforo-title">Vencido / Sin tiempo</div>
-          <div class="semaforo-count">${semaforo.rojo.length}</div>
-        </div>
-        ${semaforo.rojo.map(x => semaforoItem(x)).join('') || '<div style="font-size:12px;color:var(--txt2);padding:4px;">Sin alertas</div>'}
-      </div>
-    </div>
-
-    ${canCreateSolicitud() ? `
-    <div class="tipo-btns">
-      <div class="tipo-btn" onclick="openNewSolicitud('Nuevos desarrollos')">
-        <div class="tipo-icon">🚀</div>
-        <div class="tipo-title">Nuevos desarrollos</div>
-        <div class="tipo-desc">Desarrollo de nuevos productos o líneas</div>
-      </div>
-      <div class="tipo-btn" onclick="openNewSolicitud('Cambio de proveedor')">
-        <div class="tipo-icon">🔄</div>
-        <div class="tipo-title">Cambio de proveedor</div>
-        <div class="tipo-desc">Reemplazar proveedor manteniendo el producto</div>
-      </div>
-      <div class="tipo-btn" onclick="openNewSolicitud('Traspaso compra local al exterior')">
-        <div class="tipo-icon">🌍</div>
-        <div class="tipo-title">Traspaso al exterior</div>
-        <div class="tipo-desc">Migrar compra local a importación</div>
-      </div>
-      <div class="tipo-btn" onclick="openNewSolicitud('Compras regulares')">
-        <div class="tipo-icon">📦</div>
-        <div class="tipo-title">Compras regulares</div>
-        <div class="tipo-desc">Reposición de stock e insumos recurrentes</div>
-      </div>
-    </div>` : ''}
-
-    <div id="dashboardListSection">
-      <h3 style="color:var(--gold);margin-bottom:12px;">Requieren tu acción</h3>
-      <div class="grid grid-2">
-        ${myPending.length ? myPending.map(s => solicitudCard(s)).join('') : '<p style="color:var(--txt2)">Sin pendientes</p>'}
-      </div>
+    ${canCreateSolicitud() ? '<button class="btn-gold" onclick="openNewSolicitud()" style="margin-bottom:16px;">+ Nueva Solicitud</button>' : ''}
+    <h3 style="color:var(--gold);margin-bottom:12px;">Requieren tu acción</h3>
+    <div class="grid grid-2">
+      ${myPending.length ? myPending.map(s => solicitudCard(s)).join('') : '<p style="color:var(--txt2)">Sin pendientes</p>'}
     </div>
     <h3 style="color:var(--gold);margin:20px 0 12px;">Últimas solicitudes</h3>
     <div class="grid grid-2">
       ${solicitudes.slice(0, 6).map(s => solicitudCard(s)).join('')}
-    </div>`;
-
-  // Sync semáforo to Google Sheets (async, non-blocking)
-  syncSemaforoToSheets(semaforo).catch(e => console.warn('Semáforo sheets sync:', e));
-}
-
-function calcularSemaforo(activas) {
-  const verde = [], amarillo = [], rojo = [];
-
-  activas.forEach(s => {
-    // Get pending pasos for this solicitud, sorted by order
-    const pasos = allPendingPasos.filter(p => p.solicitud_id === s.id);
-    if (!pasos.length) { verde.push({ sol: s, paso: null, dias: null, detalle: 'Sin pasos pendientes' }); return; }
-
-    // Find the NEXT pending paso (first one not completed)
-    const next = pasos[0];
-    const dias = daysUntil(next.fecha_objetivo);
-
-    const responsableLabel = {
-      'marcas': 'Marcas', 'compras': 'Compras', 'comex': 'Comex',
-      'calidad': 'Calidad', 'conjunto': 'Conjunto'
-    }[next.responsable] || next.responsable || '';
-
-    const entry = {
-      sol: s,
-      paso: next.nombre,
-      dias,
-      responsable: responsableLabel,
-      detalle: `${next.nombre} (${responsableLabel})`
-    };
-
-    if (dias === null || dias > 10) {
-      verde.push(entry);
-    } else if (dias > 0) {
-      amarillo.push(entry);
-    } else {
-      rojo.push(entry);
-    }
-  });
-
-  // Sort: más urgente primero
-  amarillo.sort((a, b) => (a.dias ?? 999) - (b.dias ?? 999));
-  rojo.sort((a, b) => (a.dias ?? 999) - (b.dias ?? 999));
-
-  return { verde, amarillo, rojo };
-}
-
-function semaforoItem(x) {
-  const diasText = x.dias === null ? '' : x.dias === 0 ? 'Vence hoy' : x.dias > 0 ? `${x.dias}d restantes` : `Vencido hace ${Math.abs(x.dias)}d`;
-  return `<div class="semaforo-item" onclick="openSolicitud('${x.sol.id}')">
-    <div class="sol-name">#${x.sol.numero} ${x.sol.nombre}</div>
-    <div class="sol-paso">Pendiente: ${x.detalle} ${diasText ? '— ' + diasText : ''}</div>
-  </div>`;
-}
-
-function showDashboardList(type) {
-  const section = document.getElementById('dashboardListSection');
-  if (!section) return;
-  let list = [];
-  let title = '';
-  if (type === 'pending') {
-    list = solicitudes.filter(s => s.status === 'Pendiente aprobación Compras');
-    title = 'Pendientes de aprobación';
-  } else if (type === 'myPending') {
-    list = solicitudes.filter(s => {
-      if (isMarcas()) return s.status.includes('Marcas') && s.created_by === currentUser.id;
-      if (isCalidad()) return s.status.includes('Calidad') || s.status.includes('Inspección');
-      if (isComex()) return ['Comex - Proforma y pago','Orden de producción','Booking shipping','En tránsito','Nacionalización'].includes(s.status);
-      if (isCompras()) return ['Pendiente aprobación Compras','En búsqueda de proveedores','Retroplan propuesto','Esperando muestras estéticas','Esperando muestras técnicas','Aprobada - Lista para OC','OC emitida','En producción'].includes(s.status);
-      return false;
-    });
-    title = 'Requieren tu acción';
-  }
-  section.innerHTML = `
-    <h3 style="color:var(--gold);margin-bottom:12px;">${title} (${list.length})</h3>
-    <div class="grid grid-2">
-      ${list.length ? list.map(s => solicitudCard(s)).join('') : '<p style="color:var(--txt2)">Sin solicitudes</p>'}
     </div>`;
 }
 
@@ -718,12 +515,7 @@ function solicitudCard(s) {
 // =============================================
 function renderSolicitudes(c) {
   c.innerHTML = `
-    ${canCreateSolicitud() ? `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-      <button class="btn-gold" onclick="openNewSolicitud('Nuevos desarrollos')">+ Nuevos desarrollos</button>
-      <button class="btn-violet" onclick="openNewSolicitud('Cambio de proveedor')">+ Cambio proveedor</button>
-      <button class="btn-blue" onclick="openNewSolicitud('Traspaso compra local al exterior')">+ Traspaso exterior</button>
-      <button class="btn-green" onclick="openNewSolicitud('Compras regulares')">+ Compras regulares</button>
-    </div>` : ''}
+    ${canCreateSolicitud() ? '<button class="btn-gold" onclick="openNewSolicitud()" style="margin-bottom:16px;">+ Nueva Solicitud</button>' : ''}
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
       <input type="text" id="searchSol" placeholder="Buscar..." style="max-width:250px;" oninput="filterSolicitudes()">
       <select id="filterStatus" onchange="filterSolicitudes()" style="max-width:220px;">
@@ -789,125 +581,46 @@ function renderComex(c) {
 // =============================================
 // NEW SOLICITUD MODAL
 // =============================================
-function openNewSolicitud(preselectedTipo) {
-  const tipos = ['Nuevos desarrollos','Cambio de proveedor','Traspaso compra local al exterior','Compras regulares'];
+function openNewSolicitud() {
   const m = document.createElement('div');
   m.className = 'modal-overlay';
   m.id = 'newSolModal';
   m.innerHTML = `<div class="modal">
-    <h2>Nueva Solicitud — ${preselectedTipo || 'Seleccionar tipo'}</h2>
+    <h2>Nueva Solicitud</h2>
     <div class="field">
       <label>Tipo de solicitud</label>
-      <select id="nsTipo" onchange="toggleTipoFields()">
-        ${tipos.map(t => `<option value="${t}" ${t === preselectedTipo ? 'selected' : ''}>${t}</option>`).join('')}
+      <select id="nsTipo">
+        <option value="Nuevos desarrollos">Nuevos desarrollos</option>
+        <option value="Cambio de proveedor">Cambio de proveedor</option>
+        <option value="Traspaso compra local al exterior">Traspaso compra local al exterior</option>
+        <option value="Compras regulares">Compras regulares</option>
       </select>
     </div>
     <div class="row">
       <div class="field">
         <label>Marca</label>
-        <select id="nsMarca" onchange="toggleOtraMarca()">
-          ${MARCAS.map(m => `<option>${m}</option>`).join('')}
-          <option value="__otra__">Otra...</option>
-        </select>
-      </div>
-      <div class="field hidden" id="otraMarcaField">
-        <label>Nombre de la marca</label>
-        <input id="nsMarcaOtra" placeholder="Escribí el nombre de la marca">
+        <select id="nsMarca">${MARCAS.map(m => `<option>${m}</option>`).join('')}</select>
       </div>
       <div class="field">
         <label>Nombre del desarrollo</label>
-        <input id="nsNombre" placeholder="Ej: Nuevo EDT Cher 100ml">
+        <input id="nsNombre" placeholder="Ej: Nuevo EDT Cannon Sport">
       </div>
     </div>
     <div class="field">
       <label>Descripción</label>
       <textarea id="nsDesc" rows="3" placeholder="Descripción del desarrollo..."></textarea>
     </div>
-
-    <!-- FECHAS: Nuevos desarrollos -->
-    <div id="fechasNuevoDesarrollo">
-      <div class="row">
-        <div class="field">
-          <label>Fecha de Producción</label>
-          <input type="date" id="nsFechaProduccion">
-        </div>
-        <div class="field">
-          <label>Fecha de Sell-in</label>
-          <input type="date" id="nsSellIn">
-        </div>
-        <div class="field">
-          <label>Fecha de Lanzamiento</label>
-          <input type="date" id="nsLanzamiento">
-        </div>
-      </div>
-    </div>
-
-    <!-- FECHAS: Cambio proveedor / Traspaso -->
-    <div id="fechasNecesidad" class="hidden">
+    <div class="row">
       <div class="field">
-        <label>Fecha de necesidad</label>
-        <input type="date" id="nsFechaNecesidad">
+        <label>Fecha de Sell-in</label>
+        <input type="date" id="nsSellIn">
+      </div>
+      <div class="field">
+        <label>Fecha de Lanzamiento</label>
+        <input type="date" id="nsLanzamiento">
       </div>
     </div>
-
-    <!-- FECHAS: Compras regulares -->
-    <div id="fechasRegulares" class="hidden">
-      <div style="background:var(--bg3);border-radius:10px;padding:16px;border:1px solid var(--border);">
-        <h3 style="color:var(--gold);font-size:14px;margin-bottom:12px;">Análisis de stock y compra</h3>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-          <div class="field">
-            <label>Stock actual del insumo (unidades)</label>
-            <input type="number" id="nsStockInsumo" placeholder="Ej: 5000">
-          </div>
-          <div class="field">
-            <label>Stock actual del PT (unidades)</label>
-            <input type="number" id="nsStockPT" placeholder="Ej: 2000">
-          </div>
-        </div>
-
-        <div style="margin-top:10px;">
-          <label style="font-size:13px;color:var(--txt2);display:block;margin-bottom:6px;">Forecast próximos 3 meses del PT (unidades vendidas)</label>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
-            <div class="field">
-              <label style="font-size:11px;">Mes 1</label>
-              <input type="number" id="nsFcstM1" placeholder="0">
-            </div>
-            <div class="field">
-              <label style="font-size:11px;">Mes 2</label>
-              <input type="number" id="nsFcstM2" placeholder="0">
-            </div>
-            <div class="field">
-              <label style="font-size:11px;">Mes 3</label>
-              <input type="number" id="nsFcstM3" placeholder="0">
-            </div>
-          </div>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
-          <div class="field">
-            <label>Consumo de insumo por cada PT</label>
-            <input type="number" id="nsConsumoXPT" placeholder="Ej: 1" value="1" step="0.01">
-            <small style="color:var(--txt2);font-size:11px;">Cuántas unidades de insumo se usan por cada PT</small>
-          </div>
-          <div class="field">
-            <label>Lead time del insumo (días)</label>
-            <input type="number" id="nsLeadTime" placeholder="Ej: 150" value="150">
-            <small style="color:var(--txt2);font-size:11px;">Días desde OC hasta recepción del insumo</small>
-          </div>
-        </div>
-
-        <button class="btn-gold" onclick="calcularAnalisisRegular()" style="margin-top:12px;width:100%;">Calcular cobertura, fecha de OC y cantidad</button>
-
-        <div id="resultadoAnalisis" class="hidden" style="margin-top:14px;background:var(--bg2);border-radius:8px;padding:14px;border:1px solid var(--gold);">
-        </div>
-
-        <input type="hidden" id="nsFechaNecesidadCalc">
-        <input type="hidden" id="nsCantidadCompra">
-      </div>
-    </div>
-
-    <div class="row" style="margin-top:12px;">
+    <div class="row">
       <div class="field">
         <label>Costo objetivo (USD)</label>
         <input type="number" id="nsCosto" placeholder="0.00" step="0.01">
@@ -925,42 +638,22 @@ function openNewSolicitud(preselectedTipo) {
       <label>Responsable del proceso conjunto</label>
       <input id="nsCotizNombre" placeholder="Nombre del responsable">
     </div>
-
-    <div class="section" style="margin-top:16px;">
+    <div class="field">
+      <label>Links de referencia (Google Drive, Dropbox, etc.)</label>
+      <input id="nsLinks" placeholder="Separar links con coma">
+    </div>
+    <div class="section">
       <h3>Items del desarrollo</h3>
       <div id="nsItems"></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-        <button class="btn-outline btn-sm" onclick="addItemCategoria('botella_vidrio')">+ Botella vidrio</button>
-        <button class="btn-outline btn-sm" onclick="addItemCategoria('botella_plastico')">+ Botella plástico</button>
-        <button class="btn-outline btn-sm" onclick="addItemCategoria('estuche')">+ Estuche</button>
-        <button class="btn-outline btn-sm" onclick="addItemCategoria('insumo')">+ Insumo</button>
-        <button class="btn-outline btn-sm" onclick="addItemCategoria('gwp')">+ GWP</button>
-      </div>
+      <button class="btn-outline btn-sm" onclick="addItemField()" style="margin-top:8px;">+ Agregar ítem</button>
     </div>
-
-    <div class="section" style="margin-top:16px;">
-      <h3>Referencias</h3>
-      <div id="nsReferencias"></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
-        <button class="btn-outline btn-sm" onclick="addReferencia('foto')">+ Foto (URL)</button>
-        <button class="btn-outline btn-sm" onclick="addReferencia('archivo')">+ Archivo (link)</button>
-        <button class="btn-outline btn-sm" onclick="addReferencia('descripcion')">+ Descripción</button>
-        <button class="btn-outline btn-sm" onclick="addReferencia('web')">+ Sitio web</button>
-      </div>
-    </div>
-
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px;">
       <button class="btn-outline" onclick="closeModal('newSolModal')">Cancelar</button>
       <button class="btn-gold" onclick="submitSolicitud()">Crear Solicitud</button>
     </div>
   </div>`;
   document.body.appendChild(m);
-  toggleTipoFields();
-}
-
-function toggleOtraMarca() {
-  const v = document.getElementById('nsMarca').value;
-  document.getElementById('otraMarcaField').classList.toggle('hidden', v !== '__otra__');
+  addItemField(); // Add first item by default
 }
 
 function toggleCotizNombre() {
@@ -968,322 +661,63 @@ function toggleCotizNombre() {
   document.getElementById('cotizNombreField').classList.toggle('hidden', v !== 'conjunto');
 }
 
-function toggleTipoFields() {
-  const tipo = document.getElementById('nsTipo').value;
-  document.getElementById('fechasNuevoDesarrollo').classList.toggle('hidden', tipo !== 'Nuevos desarrollos');
-  document.getElementById('fechasNecesidad').classList.toggle('hidden', tipo !== 'Cambio de proveedor' && tipo !== 'Traspaso compra local al exterior');
-  document.getElementById('fechasRegulares').classList.toggle('hidden', tipo !== 'Compras regulares');
-}
-
-function calcularAnalisisRegular() {
-  const stockInsumo = parseFloat(document.getElementById('nsStockInsumo').value) || 0;
-  const stockPT = parseFloat(document.getElementById('nsStockPT').value) || 0;
-  const fcstM1 = parseFloat(document.getElementById('nsFcstM1').value) || 0;
-  const fcstM2 = parseFloat(document.getElementById('nsFcstM2').value) || 0;
-  const fcstM3 = parseFloat(document.getElementById('nsFcstM3').value) || 0;
-  const consumoXPT = parseFloat(document.getElementById('nsConsumoXPT').value) || 1;
-  const leadTime = parseInt(document.getElementById('nsLeadTime').value) || 150;
-
-  const fcstTotal3m = fcstM1 + fcstM2 + fcstM3;
-  const fcstMensualProm = fcstTotal3m / 3;
-
-  if (!fcstMensualProm) return toast('Completá el forecast de al menos un mes', true);
-
-  // ---- Demanda diaria de PT ----
-  const demandaDiariaPT = fcstMensualProm / 30;
-
-  // ---- Cobertura total ----
-  // El stock de insumo se va a convertir en PT (insumo / consumoXPT = PT producibles)
-  const ptProduciblesConInsumo = stockInsumo / consumoXPT;
-  const stockTotalEnPT = stockPT + ptProduciblesConInsumo;
-  const coberturaTotal = Math.round(stockTotalEnPT / demandaDiariaPT);
-
-  // Cobertura solo de PT actual (sin considerar insumo)
-  const coberturaPT = Math.round(stockPT / demandaDiariaPT);
-  // Cobertura solo del insumo (en días de demanda de PT)
-  const coberturaInsumo = Math.round(ptProduciblesConInsumo / demandaDiariaPT);
-
-  // ---- Fecha límite para emitir la OC ----
-  // El insumo nuevo tarda "leadTime" días en llegar.
-  // Queremos que llegue antes de que la cobertura total baje de 90 días.
-  // Entonces la OC se debe emitir cuando falten (cobertura - 90) días... menos el lead time.
-  // diasHastaStock90 = días hasta que la cobertura total llegue a 90 días
-  const diasHastaStock90 = Math.max(0, coberturaTotal - 90);
-  // La OC tiene que salir "leadTime" días antes de que necesitemos el insumo
-  const diasParaEmitirOC = diasHastaStock90 - leadTime;
-
-  const hoy = new Date();
-  const fechaOC = new Date(hoy);
-  fechaOC.setDate(fechaOC.getDate() + Math.max(0, diasParaEmitirOC));
-
-  // Fecha estimada de llegada
-  const fechaLlegada = new Date(fechaOC);
-  fechaLlegada.setDate(fechaLlegada.getDate() + leadTime);
-
-  // ---- Cantidad a comprar ----
-  // Queremos tener 90 días de insumo DESPUÉS de que llegue la compra.
-  // Al momento de llegada, el stock de insumo habrá bajado.
-  // Consumo diario de insumo = demandaDiariaPT * consumoXPT
-  const consumoDiarioInsumo = demandaDiariaPT * consumoXPT;
-  // Días hasta llegada desde hoy
-  const diasHastaLlegada = Math.max(0, Math.round((fechaLlegada - hoy) / (1000*60*60*24)));
-  // Insumo restante al momento de llegada (puede ser negativo = quiebre)
-  const insumoAlLlegar = stockInsumo - (consumoDiarioInsumo * diasHastaLlegada);
-  // Necesitamos: 90 días de insumo post-llegada
-  const insumoTarget = consumoDiarioInsumo * 90;
-  const cantidadCompra = Math.max(0, Math.ceil(insumoTarget - Math.max(0, insumoAlLlegar)));
-
-  // ---- Alerta de urgencia ----
-  const esUrgente = diasParaEmitirOC < 0;
-  const diasAtraso = Math.abs(Math.min(0, diasParaEmitirOC));
-  const hayQuiebre = insumoAlLlegar < 0;
-  const diasQuiebre = hayQuiebre ? Math.ceil(Math.abs(insumoAlLlegar) / consumoDiarioInsumo) : 0;
-
-  // Guardar resultados
-  document.getElementById('nsFechaNecesidadCalc').value = fechaOC.toISOString().split('T')[0];
-  document.getElementById('nsCantidadCompra').value = cantidadCompra;
-
-  // Mostrar resultados
-  const res = document.getElementById('resultadoAnalisis');
-  res.classList.remove('hidden');
-  res.innerHTML = `
-    ${esUrgente ? `<div style="background:var(--red);color:#fff;padding:10px 14px;border-radius:6px;margin-bottom:12px;font-size:13px;font-weight:600;">
-      ⚠️ OC URGENTE — La orden de compra debería haberse emitido hace ${diasAtraso} días para mantener 90 días de cobertura.
-      ${hayQuiebre ? `<br>⛔ QUIEBRE DE STOCK: habrá ${diasQuiebre} días sin insumo antes de que llegue la compra.` : ''}
-    </div>` : ''}
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
-      <div style="text-align:center;padding:10px;background:var(--bg3);border-radius:8px;">
-        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;">Cobertura PT</div>
-        <div style="font-size:22px;font-weight:800;color:${coberturaPT < 30 ? 'var(--red)' : coberturaPT < 60 ? 'var(--orange)' : 'var(--green)'};">${coberturaPT}d</div>
-        <div style="font-size:11px;color:var(--txt2);">${stockPT.toLocaleString('es-AR')} un.</div>
-      </div>
-      <div style="text-align:center;padding:10px;background:var(--bg3);border-radius:8px;">
-        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;">Cobertura Insumo</div>
-        <div style="font-size:22px;font-weight:800;color:${coberturaInsumo < 45 ? 'var(--red)' : coberturaInsumo < 90 ? 'var(--orange)' : 'var(--green)'};">${coberturaInsumo}d</div>
-        <div style="font-size:11px;color:var(--txt2);">${stockInsumo.toLocaleString('es-AR')} un. (= ${Math.round(ptProduciblesConInsumo).toLocaleString('es-AR')} PT)</div>
-      </div>
-      <div style="text-align:center;padding:10px;background:var(--bg3);border-radius:8px;">
-        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;">Cobertura Total</div>
-        <div style="font-size:22px;font-weight:800;color:${coberturaTotal < 90 ? 'var(--red)' : coberturaTotal < 150 ? 'var(--orange)' : 'var(--green)'};">${coberturaTotal}d</div>
-        <div style="font-size:11px;color:var(--txt2);">PT + Insumo convertido</div>
-      </div>
+let itemCount = 0;
+function addItemField() {
+  const d = document.createElement('div');
+  d.className = 'row';
+  d.style.marginBottom = '8px';
+  d.innerHTML = `
+    <div class="field"><input placeholder="Nombre del ítem (ej: Frasco 100ml)" class="item-name"></div>
+    <div class="field">
+      <select class="item-tipo">
+        <option value="Frasco vidrio">Frasco vidrio</option>
+        <option value="Frasco plástico">Frasco plástico</option>
+        <option value="Estuche">Estuche</option>
+        <option value="Tapa">Tapa</option>
+        <option value="Válvula">Válvula</option>
+        <option value="Etiqueta">Etiqueta</option>
+        <option value="Otro">Otro</option>
+      </select>
     </div>
-    <div style="margin-top:10px;font-size:12px;color:var(--txt2);line-height:1.6;">
-      Forecast promedio mensual: <strong style="color:var(--txt)">${Math.round(fcstMensualProm).toLocaleString('es-AR')}</strong> un/mes
-      · Demanda diaria: <strong style="color:var(--txt)">${Math.round(demandaDiariaPT)}</strong> PT/día
-      · Consumo diario insumo: <strong style="color:var(--txt)">${Math.round(consumoDiarioInsumo)}</strong> un/día
-      · Lead time: <strong style="color:var(--txt)">${leadTime}</strong> días
-    </div>
-    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-      <div style="text-align:center;">
-        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;">Cantidad a comprar</div>
-        <div style="font-size:28px;font-weight:800;color:var(--gold);">${cantidadCompra.toLocaleString('es-AR')}</div>
-        <div style="font-size:12px;color:var(--txt2);">unidades de insumo</div>
-      </div>
-      <div style="text-align:center;">
-        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;">Fecha recomendada de OC</div>
-        <div style="font-size:28px;font-weight:800;color:${esUrgente ? 'var(--red)' : 'var(--gold)'};">${fechaOC.toLocaleDateString('es-AR')}</div>
-        <div style="font-size:12px;color:var(--txt2);">Llegada estimada: ${fechaLlegada.toLocaleDateString('es-AR')}</div>
-      </div>
+    <div class="field">
+      <select class="item-especial">
+        <option value="">Sin tratamiento especial</option>
+        <option value="estuche">Estuche (presupuesto+muestra+aprob)</option>
+        <option value="esencia">Esencia (% y tipo + legales)</option>
+      </select>
     </div>`;
-
-  toast('Análisis calculado correctamente');
-}
-
-function addItemCategoria(cat) {
-  const container = document.getElementById('nsItems');
-  const div = document.createElement('div');
-  div.className = 'item-block';
-  div.style.cssText = 'background:var(--bg3);border-radius:8px;padding:12px;margin-bottom:10px;';
-
-  if (cat === 'botella_vidrio' || cat === 'botella_plastico') {
-    const label = cat === 'botella_vidrio' ? 'Botella de vidrio' : 'Botella de plástico';
-    const tipo = cat === 'botella_vidrio' ? 'Frasco vidrio' : 'Frasco plástico';
-    div.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="color:var(--gold);font-size:13px;">${label}</strong>
-        <button class="btn-outline btn-sm" onclick="this.closest('.item-block').remove()" style="color:var(--red);border-color:var(--red);">✕</button>
-      </div>
-      <input type="hidden" class="item-tipo-val" value="${tipo}">
-      <input type="hidden" class="item-cat" value="${cat}">
-      <div class="field" style="margin-top:8px;">
-        <label style="font-size:12px;">Nombre / Descripción</label>
-        <input class="item-name" placeholder="Ej: Botella 100ml">
-      </div>
-      <div style="margin-top:6px;">
-        <label style="font-size:12px;color:var(--txt2);">Componentes a desarrollar:</label>
-        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;">
-          <label style="font-size:13px;"><input type="checkbox" class="comp-botella" checked> Botella</label>
-          <label style="font-size:13px;"><input type="checkbox" class="comp-bomba"> Bomba</label>
-          <label style="font-size:13px;"><input type="checkbox" class="comp-collar"> Collar</label>
-          <label style="font-size:13px;"><input type="checkbox" class="comp-tapa"> Tapa</label>
-        </div>
-      </div>
-      <div style="margin-top:8px;">
-        <label style="font-size:12px;color:var(--txt2);">¿Comparte algún componente con otro insumo?</label>
-        <div style="display:flex;gap:8px;margin-top:4px;">
-          <select class="item-comparte" onchange="this.nextElementSibling.classList.toggle('hidden',this.value==='no')" style="max-width:100px;">
-            <option value="no">No</option>
-            <option value="si">Sí</option>
-          </select>
-          <input class="item-comparte-detalle hidden" placeholder="¿Con cuál?" style="flex:1;">
-        </div>
-      </div>`;
-  } else if (cat === 'estuche') {
-    div.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="color:var(--gold);font-size:13px;">Estuche</strong>
-        <button class="btn-outline btn-sm" onclick="this.closest('.item-block').remove()" style="color:var(--red);border-color:var(--red);">✕</button>
-      </div>
-      <input type="hidden" class="item-tipo-val" value="Estuche">
-      <input type="hidden" class="item-cat" value="estuche">
-      <div class="field" style="margin-top:8px;">
-        <label style="font-size:12px;">Nombre / Descripción</label>
-        <input class="item-name" placeholder="Ej: Estuche EDT 100ml">
-      </div>
-      <div class="field" style="margin-top:6px;">
-        <label style="font-size:12px;">Tipo de estuche</label>
-        <select class="item-estuche-tipo">
-          <option value="regular">Regular</option>
-          <option value="cofre">Cofre</option>
-        </select>
-      </div>`;
-  } else if (cat === 'insumo') {
-    div.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="color:var(--gold);font-size:13px;">Insumo</strong>
-        <button class="btn-outline btn-sm" onclick="this.closest('.item-block').remove()" style="color:var(--red);border-color:var(--red);">✕</button>
-      </div>
-      <input type="hidden" class="item-tipo-val" value="Insumo">
-      <input type="hidden" class="item-cat" value="insumo">
-      <div class="field" style="margin-top:8px;">
-        <label style="font-size:12px;">Especificación del insumo</label>
-        <input class="item-name" placeholder="Describí el insumo">
-      </div>`;
-  } else if (cat === 'gwp') {
-    div.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <strong style="color:var(--gold);font-size:13px;">GWP (Gift with Purchase)</strong>
-        <button class="btn-outline btn-sm" onclick="this.closest('.item-block').remove()" style="color:var(--red);border-color:var(--red);">✕</button>
-      </div>
-      <input type="hidden" class="item-tipo-val" value="GWP">
-      <input type="hidden" class="item-cat" value="gwp">
-      <div class="field" style="margin-top:8px;">
-        <label style="font-size:12px;">Especificación del GWP</label>
-        <input class="item-name" placeholder="Describí el GWP">
-      </div>`;
-  }
-  container.appendChild(div);
-}
-
-function addReferencia(tipo) {
-  const container = document.getElementById('nsReferencias');
-  const div = document.createElement('div');
-  div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
-  const labels = { foto: 'URL de foto', archivo: 'Link al archivo', descripcion: 'Descripción', web: 'URL sitio web' };
-  const placeholders = { foto: 'https://drive.google.com/...', archivo: 'https://drive.google.com/...', descripcion: 'Escribí la descripción o referencia...', web: 'https://...' };
-  const isTextarea = tipo === 'descripcion';
-  div.innerHTML = `
-    <span style="font-size:11px;color:var(--violet);min-width:60px;text-transform:uppercase;">${labels[tipo]}</span>
-    ${isTextarea
-      ? `<textarea class="ref-value" data-ref-tipo="${tipo}" rows="2" placeholder="${placeholders[tipo]}" style="flex:1;"></textarea>`
-      : `<input class="ref-value" data-ref-tipo="${tipo}" placeholder="${placeholders[tipo]}" style="flex:1;">`
-    }
-    <button class="btn-outline btn-sm" onclick="this.parentElement.remove()" style="color:var(--red);border-color:var(--red);">✕</button>`;
-  container.appendChild(div);
+  document.getElementById('nsItems').appendChild(d);
 }
 
 async function submitSolicitud() {
   const tipo = document.getElementById('nsTipo').value;
-  const marcaSel = document.getElementById('nsMarca').value;
-  const marca = marcaSel === '__otra__' ? document.getElementById('nsMarcaOtra').value.trim() : marcaSel;
+  const marca = document.getElementById('nsMarca').value;
   const nombre = document.getElementById('nsNombre').value.trim();
   const desc = document.getElementById('nsDesc').value.trim();
+  const sellIn = document.getElementById('nsSellIn').value || null;
+  const lanzamiento = document.getElementById('nsLanzamiento').value || null;
   const costo = parseFloat(document.getElementById('nsCosto').value) || null;
   const cotiz = document.getElementById('nsCotiz').value;
   const cotizNombre = document.getElementById('nsCotizNombre')?.value?.trim() || null;
+  const linksRaw = document.getElementById('nsLinks').value.trim();
+  const links = linksRaw ? linksRaw.split(',').map(l => l.trim()).filter(Boolean) : [];
 
-  // Determine dates based on tipo
-  let sellIn = null, lanzamiento = null, fechaNecesidad = null;
-  let datosRegulares = null;
-
-  if (tipo === 'Nuevos desarrollos') {
-    sellIn = document.getElementById('nsSellIn').value || null;
-    lanzamiento = document.getElementById('nsLanzamiento').value || null;
-    const fechaProd = document.getElementById('nsFechaProduccion').value || null;
-    if (!lanzamiento) return toast('La fecha de lanzamiento es obligatoria', true);
-  } else if (tipo === 'Cambio de proveedor' || tipo === 'Traspaso compra local al exterior') {
-    fechaNecesidad = document.getElementById('nsFechaNecesidad').value || null;
-    lanzamiento = fechaNecesidad; // Use necesidad as launch for retroplan
-    if (!fechaNecesidad) return toast('La fecha de necesidad es obligatoria', true);
-  } else if (tipo === 'Compras regulares') {
-    const stockInsumo = document.getElementById('nsStockInsumo').value;
-    const stockPT = document.getElementById('nsStockPT').value;
-    const fcstM1 = document.getElementById('nsFcstM1').value;
-    const fcstM2 = document.getElementById('nsFcstM2').value;
-    const fcstM3 = document.getElementById('nsFcstM3').value;
-    const consumoXPT = document.getElementById('nsConsumoXPT').value;
-    const leadTime = document.getElementById('nsLeadTime').value;
-    const cantidadCompra = document.getElementById('nsCantidadCompra').value;
-    fechaNecesidad = document.getElementById('nsFechaNecesidadCalc').value || null;
-    lanzamiento = fechaNecesidad;
-    if (!fechaNecesidad) return toast('Ejecutá el cálculo de fecha y cantidad primero', true);
-    datosRegulares = { stockInsumo, stockPT, fcstM1, fcstM2, fcstM3, consumoXPT, leadTime, cantidadCompra };
-  }
-
-  if (!marca) return toast('Seleccioná una marca', true);
   if (!nombre) return toast('Completá el nombre del desarrollo', true);
+  if (!lanzamiento) return toast('La fecha de lanzamiento es obligatoria', true);
 
-  try {
-  // Collect items from item blocks
-  const itemBlocks = document.querySelectorAll('.item-block');
+  // Collect items
+  const itemNames = document.querySelectorAll('.item-name');
+  const itemTipos = document.querySelectorAll('.item-tipo');
+  const itemEspeciales = document.querySelectorAll('.item-especial');
   const items = [];
-  itemBlocks.forEach(block => {
-    const nameEl = block.querySelector('.item-name');
-    const tipoEl = block.querySelector('.item-tipo-val');
-    const catEl = block.querySelector('.item-cat');
-    const n = nameEl?.value?.trim();
-    if (!n) return;
-    const item = { nombre: n, tipo_producto: tipoEl?.value || 'Otro' };
-
-    // Collect sub-components for botellas
-    const cat = catEl?.value;
-    if (cat === 'botella_vidrio' || cat === 'botella_plastico') {
-      const comps = [];
-      if (block.querySelector('.comp-botella')?.checked) comps.push('Botella');
-      if (block.querySelector('.comp-bomba')?.checked) comps.push('Bomba');
-      if (block.querySelector('.comp-collar')?.checked) comps.push('Collar');
-      if (block.querySelector('.comp-tapa')?.checked) comps.push('Tapa');
-      item.notas = 'Componentes: ' + comps.join(', ');
-      const comparte = block.querySelector('.item-comparte')?.value;
-      if (comparte === 'si') {
-        const detalle = block.querySelector('.item-comparte-detalle')?.value?.trim();
-        if (detalle) item.notas += ' | Comparte con: ' + detalle;
-      }
-    }
-    // Estuche tipo
-    if (cat === 'estuche') {
-      const estucheTipo = block.querySelector('.item-estuche-tipo')?.value;
-      if (estucheTipo) item.notas = 'Tipo: ' + estucheTipo;
-      item.tratamiento_especial = 'estuche';
-    }
-    items.push(item);
-  });
-
-  // Collect referencias
-  const refEls = document.querySelectorAll('.ref-value');
-  const referencias = [];
-  refEls.forEach(el => {
-    const val = el.value.trim();
-    if (val) referencias.push({ tipo: el.dataset.refTipo, valor: val });
-  });
-  const links = referencias.filter(r => r.tipo !== 'descripcion').map(r => r.valor);
-  const descRefs = referencias.filter(r => r.tipo === 'descripcion').map(r => r.valor);
-  const fullDesc = [desc, ...descRefs.map(d => 'Ref: ' + d)].filter(Boolean).join('\n');
+  for (let i = 0; i < itemNames.length; i++) {
+    const n = itemNames[i].value.trim();
+    if (n) items.push({ nombre: n, tipo_producto: itemTipos[i].value, tratamiento_especial: itemEspeciales[i].value || null });
+  }
 
   // Create solicitud
   const { data: sol, error } = await sb.from('solicitudes').insert({
-    tipo, marca, nombre, descripcion: fullDesc + (datosRegulares ? `\n--- Análisis Compra Regular ---\nStock Insumo: ${datosRegulares.stockInsumo} | Stock PT: ${datosRegulares.stockPT}\nForecast 3M: ${datosRegulares.fcstM1}/${datosRegulares.fcstM2}/${datosRegulares.fcstM3}\nConsumo x PT: ${datosRegulares.consumoXPT} | Lead time: ${datosRegulares.leadTime} días\nCantidad a comprar: ${datosRegulares.cantidadCompra}` : ''),
+    tipo, marca, nombre, descripcion: desc,
     fecha_sell_in: sellIn, fecha_lanzamiento: lanzamiento,
     costo_objetivo: costo, cotizacion_responsable: cotiz,
     cotizacion_responsable_nombre: cotizNombre,
@@ -1335,10 +769,6 @@ async function submitSolicitud() {
   await loadSolicitudes();
   switchTab('dashboard');
   toast('Solicitud creada exitosamente');
-  } catch (err) {
-    console.error('Error creando solicitud:', err);
-    toast('Error al crear solicitud: ' + (err.message || err), true);
-  }
 }
 
 // =============================================
@@ -1386,10 +816,7 @@ function renderSolicitudDetail(c, data) {
     </div>
 
     <div class="section" style="margin-top:20px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <h3>Retroplan</h3>
-        ${(isCompras() || canApprove()) && s.status !== 'Completado' && s.status !== 'Rechazada' ? `<button class="btn-outline btn-sm" onclick="regenerarRetroplan('${s.id}','${s.tipo}','${s.fecha_lanzamiento}')">Regenerar retroplan</button>` : ''}
-      </div>
+      <h3>Retroplan</h3>
       <div class="retroplan-timeline" id="retroplanTimeline"></div>
     </div>
 
@@ -1404,7 +831,7 @@ function renderSolicitudDetail(c, data) {
       </div>
     </div>
 
-    ${['Comex - Proforma y pago','Orden de producción','En producción','Inspección pre-embarque','Booking shipping','En tránsito','Nacionalización','Completado'].includes(s.status) || data.comex ? `
+    ${s.status === 'Comex - Pago y seguimiento' || s.status === 'En tránsito' || data.comex ? `
     <div class="section">
       <h3>Seguimiento Comex</h3>
       <div id="comexSection"></div>
@@ -1472,10 +899,9 @@ function renderActionBar(s, data) {
       }
       break;
     case 'Pendiente aprobación estética (Marcas)':
-      if (isMarcas() || canApprove()) {
-        html += `<p style="color:var(--txt2);font-size:13px;">Aprobá cada ítem individualmente en la sección de Items, o usá el botón para aprobar todos.</p>`;
-        html += `<button class="btn-green" onclick="approveAllAesthetic('${sid}')">Aprobar todos los ítems</button>`;
-        html += `<button class="btn-red" onclick="rejectAllAesthetic('${sid}')">Rechazar todos</button>`;
+      // Item-level approval handled in items section
+      if (isMarcas()) {
+        html += `<p style="color:var(--txt2);font-size:13px;">Aprobá cada ítem individualmente en la sección de Items.</p>`;
       }
       break;
     case 'Esperando muestras técnicas':
@@ -1484,56 +910,32 @@ function renderActionBar(s, data) {
       }
       break;
     case 'Pendiente aprobación Calidad':
-      if (isCalidad() || canApprove()) {
+      if (isCalidad()) {
         html += `<button class="btn-green" onclick="calidadApprove('${sid}')">Calidad: Aprobar</button>`;
         html += `<button class="btn-red" onclick="calidadReject('${sid}')">Calidad: Rechazar</button>`;
-      }
-      break;
-    case 'Aprobada - Lista para OC':
-      if (isCompras() || canApprove()) {
-        html += `<button class="btn-green" onclick="emitOC('${sid}')">Emitir OC (Mariángeles)</button>`;
-      }
-      break;
-    case 'OC emitida':
-      if (isComex() || canApprove()) {
-        html += `<button class="btn-blue" onclick="comexTakeOver('${sid}')">Comex: Proforma y pago</button>`;
-      }
-      break;
-    case 'Comex - Proforma y pago':
-      if (isComex() || canApprove()) {
-        html += `<button class="btn-blue" onclick="comexOrdenProduccion('${sid}')">Dar orden de producción</button>`;
-      }
-      break;
-    case 'Orden de producción':
-      if (isCompras() || canApprove()) {
-        html += `<button class="btn-gold" onclick="markEnProduccion('${sid}')">Marcar en producción</button>`;
-      }
-      break;
-    case 'En producción':
-      if (isCompras() || isCalidad() || canApprove()) {
-        html += `<button class="btn-gold" onclick="produccionFinalizada('${sid}')">Producción finalizada → Inspección</button>`;
       }
       break;
     case 'Inspección pre-embarque':
       html += `<p style="color:var(--txt2);font-size:13px;">Las inspecciones se aprueban individualmente abajo.</p>`;
       break;
-    case 'Booking shipping':
-      if (isComex() || canApprove()) {
-        html += `<div class="field" style="margin-bottom:8px;">
-          <label style="font-size:12px;">Fecha estimada de arribo (ETA)</label>
-          <input type="date" id="etaInput" style="max-width:200px;">
-        </div>`;
-        html += `<button class="btn-blue" onclick="markShipped('${sid}')">Confirmar embarque → En tránsito</button>`;
+    case 'Aprobada - Lista para OC':
+      if (isCompras()) {
+        html += `<button class="btn-green" onclick="emitOC('${sid}')">Emitir OC</button>`;
+      }
+      break;
+    case 'OC emitida':
+      if (isComex()) {
+        html += `<button class="btn-blue" onclick="comexTakeOver('${sid}')">Comex: Tomar seguimiento</button>`;
+      }
+      break;
+    case 'Comex - Pago y seguimiento':
+      if (isComex()) {
+        html += `<button class="btn-blue" onclick="markInTransit('${sid}')">Marcar en tránsito</button>`;
       }
       break;
     case 'En tránsito':
-      if (isComex() || canApprove()) {
-        html += `<button class="btn-blue" onclick="markNacionalizacion('${sid}')">Arribo → Nacionalización</button>`;
-      }
-      break;
-    case 'Nacionalización':
-      if (isComex() || isCompras() || canApprove()) {
-        html += `<button class="btn-green" onclick="markCompleted('${sid}')">Nacionalizado → Completado</button>`;
+      if (isComex() || isCompras()) {
+        html += `<button class="btn-green" onclick="markCompleted('${sid}')">Marcar completado</button>`;
       }
       break;
   }
@@ -1572,20 +974,20 @@ function renderItems(items, s) {
   const el = document.getElementById('itemsSection');
   if (!items.length) { el.innerHTML = '<p style="color:var(--txt2)">Sin ítems</p>'; return; }
 
-  const showAestheticApproval = s.status === 'Pendiente aprobación estética (Marcas)' && (isMarcas() || canApprove());
+  const showAestheticApproval = s.status === 'Pendiente aprobación estética (Marcas)' && isMarcas();
 
   el.innerHTML = `<table class="items-table">
     <tr>
-      <th>Ítem</th><th>Tipo</th><th>Detalle</th><th>Estético</th><th>Técnico</th>
+      <th>Ítem</th><th>Tipo</th><th>Estético</th><th>Técnico</th><th>Especial</th>
       ${showAestheticApproval ? '<th>Acciones</th>' : ''}
       <th>Compra parcial</th>
     </tr>
     ${items.map(it => `<tr>
       <td>${it.nombre}</td>
       <td>${it.tipo_producto || '-'}</td>
-      <td style="font-size:12px;color:var(--txt2);max-width:180px;">${it.notas || (it.tratamiento_especial ? `<span style="color:var(--orange)">${it.tratamiento_especial}</span>` : '-')}</td>
       <td>${pill_item(it.status_estetico)}</td>
       <td>${pill_item(it.status_tecnico)}</td>
+      <td>${it.tratamiento_especial ? `<span style="color:var(--orange)">${it.tratamiento_especial}</span>` : '-'}</td>
       ${showAestheticApproval && it.status_estetico === 'pendiente' ? `<td>
         <button class="btn-green btn-sm" onclick="approveItemAesthetic('${it.id}','${s.id}')">Aprobar</button>
         <button class="btn-red btn-sm" onclick="rejectItemAesthetic('${it.id}','${s.id}')">Rechazar</button>
@@ -1610,9 +1012,9 @@ function pill_item(status) {
 function renderInspecciones(inspecciones, s) {
   const el = document.getElementById('inspeccionesSection');
   const tipos = [
-    { key: 'calidad_funcional', label: 'Calidad - Funcionalidad', canApproveRole: () => isCalidad() || canApprove() },
-    { key: 'estetica_marcas', label: 'Marcas - Estética', canApproveRole: () => isMarcas() || canApprove() },
-    { key: 'comex_packing', label: 'Comex - Packing List & Shipping Marks', canApproveRole: () => isComex() || canApprove() }
+    { key: 'calidad_funcional', label: 'Calidad - Funcionalidad', canApproveRole: () => isCalidad() },
+    { key: 'estetica_marcas', label: 'Marcas - Estética', canApproveRole: () => isMarcas() },
+    { key: 'comex_packing', label: 'Comex - Packing List & Shipping Marks', canApproveRole: () => isComex() }
   ];
 
   const showInsp = s.status === 'Inspección pre-embarque';
@@ -1637,17 +1039,15 @@ function renderInspecciones(inspecciones, s) {
 function renderComexDetail(comex, s) {
   const el = document.getElementById('comexSection');
   if (!el) return;
-  const eta = comex.documentacion?.eta;
   el.innerHTML = `<div class="card">
     <div class="meta">OP: <strong>${comex.op_numero || 'Sin asignar'}</strong>
-      ${(isComex() || canApprove()) ? `<button class="btn-outline btn-sm" onclick="editComexOP('${comex.id}')" style="margin-left:8px;">Editar</button>` : ''}
+      ${isComex() ? `<button class="btn-outline btn-sm" onclick="editComexOP('${comex.id}')" style="margin-left:8px;">Editar</button>` : ''}
     </div>
     <div class="meta">Pago exterior: <strong>${comex.pago_exterior_status}</strong></div>
     <div class="meta">Packing list: ${comex.packing_list_ok ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--red)">✗</span>'}
       Shipping marks: ${comex.shipping_marks_ok ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--red)">✗</span>'}</div>
-    ${eta ? `<div class="meta">ETA (fecha estimada arribo): <strong style="color:var(--gold);">${fmtDate(eta)}</strong></div>` : ''}
     ${comex.notas ? `<div class="meta">Notas: ${comex.notas}</div>` : ''}
-    ${(isComex() || canApprove()) ? `<button class="btn-blue btn-sm" onclick="editComex('${comex.id}')" style="margin-top:8px;">Editar seguimiento</button>` : ''}
+    ${isComex() ? `<button class="btn-blue btn-sm" onclick="editComex('${comex.id}')" style="margin-top:8px;">Editar seguimiento</button>` : ''}
   </div>`;
 }
 
@@ -1745,29 +1145,22 @@ async function aestheticSamplesArrived(id) {
 }
 
 async function approveItemAesthetic(itemId, solId) {
-  try {
-    const { error: updErr } = await sb.from('solicitud_items').update({
-      status_estetico: 'aprobado', aprobado_estetico_by: currentUser.id,
-      aprobado_estetico_at: new Date().toISOString()
-    }).eq('id', itemId);
-    if (updErr) throw updErr;
+  await sb.from('solicitud_items').update({
+    status_estetico: 'aprobado', aprobado_estetico_by: currentUser.id,
+    aprobado_estetico_at: new Date().toISOString()
+  }).eq('id', itemId);
+  await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Ítem aprobado estéticamente' });
 
-    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Ítem aprobado estéticamente' });
-
-    // Check if all items approved
-    const { data: items } = await sb.from('solicitud_items').select('status_estetico').eq('solicitud_id', solId);
-    const allApproved = items?.every(i => i.status_estetico === 'aprobado');
-    if (allApproved) {
-      await sb.from('solicitudes').update({ status: 'Esperando muestras técnicas' }).eq('id', solId);
-      await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems aprobados estéticamente' });
-    }
-    await loadSolicitudes();
-    await openSolicitud(solId);
-    toast('Ítem aprobado');
-  } catch (err) {
-    console.error('Error aprobando ítem:', err);
-    toast('Error: ' + (err.message || err), true);
+  // Check if all items approved
+  const { data: items } = await sb.from('solicitud_items').select('status_estetico').eq('solicitud_id', solId);
+  const allApproved = items?.every(i => i.status_estetico === 'aprobado');
+  if (allApproved) {
+    await sb.from('solicitudes').update({ status: 'Esperando muestras técnicas' }).eq('id', solId);
+    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems aprobados estéticamente' });
   }
+  await loadSolicitudes();
+  await openSolicitud(solId);
+  toast('Ítem aprobado');
 }
 
 async function rejectItemAesthetic(itemId, solId) {
@@ -1780,47 +1173,6 @@ async function rejectItemAesthetic(itemId, solId) {
   toast('Ítem rechazado');
 }
 
-async function approveAllAesthetic(solId) {
-  if (!confirm('¿Aprobar todos los ítems estéticamente?')) return;
-  try {
-    const { data: items } = await sb.from('solicitud_items').select('id, status_estetico').eq('solicitud_id', solId);
-    const pendientes = items?.filter(i => i.status_estetico === 'pendiente') || [];
-    for (const it of pendientes) {
-      await sb.from('solicitud_items').update({
-        status_estetico: 'aprobado', aprobado_estetico_by: currentUser.id,
-        aprobado_estetico_at: new Date().toISOString()
-      }).eq('id', it.id);
-    }
-    await sb.from('solicitudes').update({ status: 'Esperando muestras técnicas' }).eq('id', solId);
-    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems aprobados estéticamente' });
-    await loadSolicitudes();
-    await openSolicitud(solId);
-    toast('Todos los ítems aprobados');
-  } catch (err) {
-    console.error(err);
-    toast('Error: ' + err.message, true);
-  }
-}
-
-async function rejectAllAesthetic(solId) {
-  const motivo = prompt('Motivo del rechazo estético de todos los ítems:');
-  if (!motivo) return;
-  try {
-    const { data: items } = await sb.from('solicitud_items').select('id, status_estetico').eq('solicitud_id', solId);
-    const pendientes = items?.filter(i => i.status_estetico === 'pendiente') || [];
-    for (const it of pendientes) {
-      await sb.from('solicitud_items').update({ status_estetico: 'rechazado', notas: motivo }).eq('id', it.id);
-    }
-    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems rechazados estéticamente', detalle: motivo });
-    await loadSolicitudes();
-    await openSolicitud(solId);
-    toast('Todos los ítems rechazados');
-  } catch (err) {
-    console.error(err);
-    toast('Error: ' + err.message, true);
-  }
-}
-
 async function techSamplesArrived(id) {
   await updateStatus(id, 'Pendiente aprobación Calidad', 'Muestras técnicas recibidas', null,
     ['nmaggi@cdimex.com.ar','abenitez@cdimex.com.ar'],
@@ -1829,12 +1181,13 @@ async function techSamplesArrived(id) {
 }
 
 async function calidadApprove(id) {
-  await completePasoByName(id, 'Aprobación Calidad');
-  const s = solicitudes.find(x => x.id === id);
-  await updateStatus(id, 'Aprobada - Lista para OC', 'Calidad aprobó - Lista para emisión de OC', null,
-    ['mjaimes@cdimex.com.ar','nguarino@cdimex.com.ar'],
-    `Solicitud #${s?.numero}: Calidad aprobó - Emitir OC`,
-    `<p>Las muestras técnicas de <strong>${s?.nombre}</strong> fueron aprobadas por Calidad. Mariángeles debe emitir la OC.</p>`);
+  // Create inspection records
+  await sb.from('inspecciones').insert([
+    { solicitud_id: id, tipo: 'calidad_funcional', resultado: 'pendiente' },
+    { solicitud_id: id, tipo: 'estetica_marcas', resultado: 'pendiente' },
+    { solicitud_id: id, tipo: 'comex_packing', resultado: 'pendiente' }
+  ]);
+  await updateStatus(id, 'Inspección pre-embarque', 'Calidad aprobó - Inspección pre-embarque iniciada', null);
 }
 
 async function calidadReject(id) {
@@ -1860,8 +1213,8 @@ async function approveInspeccion(solId, tipo) {
   const { data: allInsp } = await sb.from('inspecciones').select('resultado').eq('solicitud_id', solId);
   const allOk = allInsp?.every(i => i.resultado === 'aprobado');
   if (allOk) {
-    await sb.from('solicitudes').update({ status: 'Booking shipping' }).eq('id', solId);
-    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todas las inspecciones aprobadas - Booking shipping' });
+    await sb.from('solicitudes').update({ status: 'Aprobada - Lista para OC' }).eq('id', solId);
+    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todas las inspecciones aprobadas - Lista para OC' });
   }
   await loadSolicitudes();
   await openSolicitud(solId);
@@ -1884,99 +1237,28 @@ async function rejectInspeccion(solId, tipo) {
 
 async function emitOC(id) {
   const s = solicitudes.find(x => x.id === id);
-  await completePasoByName(id, 'Emisión OC');
-  await updateStatus(id, 'OC emitida', 'OC emitida por Mariángeles', null,
+  // Mark retroplan step completed
+  await completePasoByName(id, 'OC y pago');
+  await updateStatus(id, 'OC emitida', 'OC emitida', null,
     ['lruiz@cdimex.com.ar','nroldan@cdimex.com.ar'],
-    `Solicitud #${s?.numero}: OC emitida - Comex gestionar proforma y pago`,
-    `<p>Se emitió la OC para <strong>${s?.nombre}</strong>. Comex debe gestionar la proforma invoice y el pago.</p>`);
+    `Solicitud #${s.numero}: OC emitida - Comex tomar seguimiento`,
+    `<p>Se emitió la OC para <strong>${s.nombre}</strong>. Comex debe tomar el seguimiento.</p>`);
 }
 
 async function comexTakeOver(id) {
   // Create comex tracking record
-  const { data: existing } = await sb.from('comex_seguimiento').select('id').eq('solicitud_id', id).single();
-  if (!existing) {
-    await sb.from('comex_seguimiento').insert({ solicitud_id: id });
-  }
-  await completePasoByName(id, 'Proforma invoice y pago');
-  await updateStatus(id, 'Comex - Proforma y pago', 'Comex gestionando proforma y pago', null);
-
-  // Sync to Google Sheets
-  const s = solicitudes.find(x => x.id === id);
-  try {
-    await fetch('/api/sheets-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': 'cdimex-internal-2024' },
-      body: JSON.stringify({
-        action: 'write', solicitudId: id,
-        data: {
-          numero: s?.numero, nombre: s?.nombre, marca: s?.marca, tipo: s?.tipo,
-          fecha_oc: new Date().toISOString().split('T')[0],
-          pago_status: 'pendiente', estado: 'Comex - Proforma y pago'
-        }
-      })
-    });
-  } catch (e) { console.warn('Sheets sync error:', e); }
+  await sb.from('comex_seguimiento').insert({ solicitud_id: id });
+  await updateStatus(id, 'Comex - Pago y seguimiento', 'Comex tomó seguimiento', null);
 }
 
-async function comexOrdenProduccion(id) {
-  await completePasoByName(id, 'Orden de producción');
-  const s = solicitudes.find(x => x.id === id);
-  await updateStatus(id, 'Orden de producción', 'Comex dio orden de producción', null,
-    ['nguarino@cdimex.com.ar','mjaimes@cdimex.com.ar'],
-    `Solicitud #${s?.numero}: Orden de producción emitida`,
-    `<p>Se emitió la orden de producción para <strong>${s?.nombre}</strong>.</p>`);
-}
-
-async function markEnProduccion(id) {
-  await completePasoByName(id, 'Producción');
-  await updateStatus(id, 'En producción', 'Producción iniciada', null);
-}
-
-async function produccionFinalizada(id) {
-  // Create inspection records when production finishes
-  const { data: existingInsp } = await sb.from('inspecciones').select('id').eq('solicitud_id', id);
-  if (!existingInsp?.length) {
-    await sb.from('inspecciones').insert([
-      { solicitud_id: id, tipo: 'calidad_funcional', resultado: 'pendiente' },
-      { solicitud_id: id, tipo: 'estetica_marcas', resultado: 'pendiente' },
-      { solicitud_id: id, tipo: 'comex_packing', resultado: 'pendiente' }
-    ]);
-  }
-  await completePasoByName(id, 'Inspección pre-embarque');
-  await updateStatus(id, 'Inspección pre-embarque', 'Producción finalizada - Inspección pre-embarque iniciada', null);
-}
-
-async function markShipped(id) {
-  const eta = document.getElementById('etaInput')?.value;
-  if (!eta) return toast('Ingresá la fecha estimada de arribo (ETA)', true);
-
-  // Save ETA in comex notes
-  await sb.from('comex_seguimiento').update({
-    notas: `ETA: ${eta}`,
-    documentacion: { eta }
-  }).eq('solicitud_id', id);
-
-  await completePasoByName(id, 'Booking shipping');
-  await completePasoByName(id, 'Shipping / Tránsito');
-  const s = solicitudes.find(x => x.id === id);
-  await updateStatus(id, 'En tránsito', `Embarcado - ETA: ${eta}`, null,
-    ['nguarino@cdimex.com.ar','lruiz@cdimex.com.ar'],
-    `Solicitud #${s?.numero}: En tránsito - ETA ${eta}`,
-    `<p><strong>${s?.nombre}</strong> fue embarcada. Fecha estimada de arribo: ${eta}</p>`);
-}
-
-async function markNacionalizacion(id) {
-  await completePasoByName(id, 'Nacionalización');
-  await updateStatus(id, 'Nacionalización', 'Mercadería arribó - En nacionalización', null);
+async function markInTransit(id) {
+  await completePasoByName(id, 'Shipping + Aduana');
+  await updateStatus(id, 'En tránsito', 'Marcado en tránsito', null);
 }
 
 async function markCompleted(id) {
   await completePasoByName(id, 'Recepción');
-  const s = solicitudes.find(x => x.id === id);
-  await updateStatus(id, 'Completado', 'Solicitud completada - Nacionalizado y recibido', null,
-    [s?.profiles?.email, 'nguarino@cdimex.com.ar'].filter(Boolean),
-    `Solicitud #${s?.numero}: Completada`,
-    `<p><strong>${s?.nombre}</strong> fue nacionalizada y recibida exitosamente.</p>`);
+  await updateStatus(id, 'Completado', 'Solicitud completada', null);
 }
 
 // =============================================
@@ -1997,46 +1279,6 @@ async function completePasoByName(solId, nombre) {
       completado: true, fecha_completado: new Date().toISOString().split('T')[0]
     }).eq('id', data.id);
   }
-}
-
-// =============================================
-// REGENERAR RETROPLAN
-// =============================================
-async function regenerarRetroplan(solId, tipo, fechaLanzamiento) {
-  if (!confirm('¿Regenerar el retroplan con el template actualizado?\n\nEsto eliminará todos los pasos actuales y creará los nuevos. Los pasos ya completados se perderán.')) return;
-
-  // Get cotización responsable for __COTIZ__ placeholder
-  const { data: sol } = await sb.from('solicitudes').select('cotizacion_responsable').eq('id', solId).single();
-  const cotiz = sol?.cotizacion_responsable || 'compras';
-
-  // Delete existing pasos
-  await sb.from('retroplan_pasos').delete().eq('solicitud_id', solId);
-
-  // Generate new pasos from current template
-  const template = RETROPLAN_TEMPLATES[tipo] || RETROPLAN_TEMPLATES['Nuevos desarrollos'];
-  const launchDate = new Date(fechaLanzamiento + 'T12:00:00');
-  const pasos = template.map((t, i) => {
-    const fecha = new Date(launchDate);
-    fecha.setDate(fecha.getDate() - t.dias);
-    let resp = t.responsable;
-    if (resp === '__COTIZ__') resp = cotiz;
-    return {
-      solicitud_id: solId, orden: i + 1, nombre: t.nombre,
-      responsable: resp, dias_offset: t.dias,
-      fecha_objetivo: fecha.toISOString().split('T')[0]
-    };
-  });
-
-  await sb.from('retroplan_pasos').insert(pasos);
-
-  // Log
-  await sb.from('historial').insert({
-    solicitud_id: solId, actor_id: currentUser.id,
-    evento: 'Retroplan regenerado', detalle: `Template: ${tipo}, ${template.length} pasos`
-  });
-
-  toast('Retroplan regenerado exitosamente');
-  await openSolicitud(solId);
 }
 
 // =============================================
@@ -2126,21 +1368,6 @@ async function editComex(comexId) {
   await sb.from('comex_seguimiento').update({
     pago_exterior_status: pago, packing_list_ok: packing, shipping_marks_ok: shipping, notas
   }).eq('id', comexId);
-
-  // Sync update to Google Sheets
-  if (viewingSolicitud) {
-    try {
-      await fetch('/api/sheets-sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': 'cdimex-internal-2024' },
-        body: JSON.stringify({
-          action: 'update', solicitudId: viewingSolicitud,
-          data: { pago_status: pago, packing_list: packing ? 'OK' : 'Pendiente', shipping_marks: shipping ? 'OK' : 'Pendiente', notas }
-        })
-      });
-    } catch (e) { console.warn('Sheets sync error:', e); }
-  }
-
   toast('Seguimiento Comex actualizado');
   if (viewingSolicitud) await openSolicitud(viewingSolicitud);
 }
@@ -2185,39 +1412,6 @@ function wrapEmail(body) {
     <div style="padding:20px;background:#f9f9f9;border-radius:0 0 8px 8px;">${body}</div>
     <div style="padding:8px 20px;text-align:center;"><small style="color:#999;">Sistema de gestión CDimex</small></div>
   </div>`;
-}
-
-// =============================================
-// SEMÁFORO → GOOGLE SHEETS SYNC
-// =============================================
-async function syncSemaforoToSheets(semaforo) {
-  const rows = [];
-  const today = new Date().toISOString().split('T')[0];
-
-  [...semaforo.amarillo, ...semaforo.rojo].forEach(x => {
-    rows.push([
-      today,
-      x.sol.numero || '',
-      x.sol.nombre || '',
-      x.sol.marca || '',
-      x.sol.tipo || '',
-      x.sol.status || '',
-      x.paso || '',
-      x.responsable || '',
-      x.dias ?? '',
-      x.dias !== null && x.dias <= 0 ? 'ROJO' : 'AMARILLO'
-    ]);
-  });
-
-  if (!rows.length) return;
-
-  try {
-    await fetch('/api/semaforo-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': 'cdimex-internal-2024' },
-      body: JSON.stringify({ rows })
-    });
-  } catch (e) { console.warn('Semáforo sync error:', e); }
 }
 
 // =============================================
