@@ -506,12 +506,12 @@ async function initApp(user) {
   document.getElementById('userName').textContent = profile.full_name;
   document.getElementById('userRole').textContent = profile.role + (profile.sub_roles?.length ? ' / ' + profile.sub_roles.join(', ') : '');
 
-  // Load dynamic brand map from DB
-  await loadUsuarioMarcas();
-  // Load all profiles for @mentions and admin
-  await loadAllProfiles();
-  // Load plantillas
-  await loadPlantillas();
+  // Load extra data in parallel, non-blocking (tables may not exist yet)
+  await Promise.allSettled([
+    loadUsuarioMarcas(),
+    loadAllProfiles(),
+    loadPlantillas()
+  ]);
 
   // Show/hide tabs based on role
   const comexTab = document.querySelector('[data-tab="comex"]');
@@ -672,37 +672,20 @@ function toast(msg, isError = false) {
 // =============================================
 // RETRY SYSTEM & OPERATION WRAPPER
 // =============================================
-async function withRetry(fn, { retries = 2, label = 'Operación' } = {}) {
-  // Show loading overlay
-  const overlay = document.createElement('div');
-  overlay.id = 'opOverlay';
-  overlay.innerHTML = `<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;">
-    <div style="background:var(--bg2);padding:24px 32px;border-radius:12px;text-align:center;color:var(--txt1);">
-      <div class="spinner" style="margin:0 auto 12px;width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin 1s linear infinite;"></div>
-      <div id="opLabel">${label}...</div>
-    </div>
-  </div>`;
-  document.body.appendChild(overlay);
-
+async function withRetry(fn, { retries = 1, label = 'Operación' } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      if (attempt > 0) {
-        document.getElementById('opLabel').textContent = `${label}... (reintento ${attempt}/${retries})`;
-      }
       const result = await fn();
-      overlay.remove();
-      toast(`${label} completado`);
       return result;
     } catch (err) {
       lastError = err;
       console.error(`${label} attempt ${attempt + 1} failed:`, err);
-      if (attempt < retries) await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      if (attempt < retries) await new Promise(r => setTimeout(r, 800));
     }
   }
-  overlay.remove();
-  toast(`${label} falló: ${lastError?.message || 'Error desconocido'}. Intentá de nuevo.`, true);
-  throw lastError;
+  toast(`${label} falló: ${lastError?.message || 'Error'}. Intentá de nuevo.`, true);
+  return null;
 }
 
 function pill(status) {
@@ -2591,22 +2574,20 @@ function renderHistory(history) {
 // WORKFLOW ACTIONS
 // =============================================
 async function updateStatus(id, newStatus, evento, detalle, emailTo, emailSubject, emailBody) {
-  await withRetry(async () => {
-    const s = solicitudes.find(x => x.id === id);
-    const oldStatus = s?.status;
-    // Build diff
-    const diffJson = JSON.stringify({
-      cambios: [{ campo: 'Estado', antes: oldStatus, despues: newStatus }],
-      nota: detalle || ''
-    });
-    const { error } = await sb.from('solicitudes').update({ status: newStatus }).eq('id', id);
-    if (error) throw error;
-    await sb.from('historial').insert({ solicitud_id: id, actor_id: currentUser.id, evento, detalle: diffJson });
-    if (emailTo && emailSubject) {
-      await sendEmail(emailTo, emailSubject, emailBody || `<p>${evento}</p>`);
-    }
-  }, { label: evento });
+  const s = solicitudes.find(x => x.id === id);
+  const oldStatus = s?.status;
+  const diffJson = JSON.stringify({
+    cambios: [{ campo: 'Estado', antes: oldStatus, despues: newStatus }],
+    nota: detalle || ''
+  });
+  const { error } = await sb.from('solicitudes').update({ status: newStatus }).eq('id', id);
+  if (error) { toast('Error al cambiar estado: ' + error.message, true); return; }
+  await sb.from('historial').insert({ solicitud_id: id, actor_id: currentUser.id, evento, detalle: diffJson });
+  if (emailTo && emailSubject) {
+    sendEmail(emailTo, emailSubject, emailBody || `<p>${evento}</p>`).catch(e => console.warn('Email error:', e));
+  }
   await loadSolicitudes();
+  toast(evento);
   await openSolicitud(id);
 }
 
@@ -3387,33 +3368,32 @@ async function editComex(comexId) {
 async function addComment(solId) {
   const texto = document.getElementById('newComment').value.trim();
   if (!texto) return;
-  await withRetry(async () => {
-    const { error } = await sb.from('comentarios').insert({ solicitud_id: solId, autor_id: currentUser.id, texto });
-    if (error) throw error;
-    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Comentario agregado' });
+  const { error } = await sb.from('comentarios').insert({ solicitud_id: solId, autor_id: currentUser.id, texto });
+  if (error) { toast('Error al comentar: ' + error.message, true); return; }
+  sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Comentario agregado' }).then(() => {});
+  document.getElementById('newComment').value = '';
+  toast('Comentario agregado');
+  await openSolicitud(solId);
 
-    // Detect @mentions and send email notifications
-    const mentions = texto.match(/@(\w+(?:\s\w+)?)/g);
-    if (mentions) {
-      const s = solicitudes.find(x => x.id === solId);
-      for (const mention of mentions) {
-        const name = mention.replace('@', '').toLowerCase();
-        const mentioned = allProfiles.find(p =>
-          p.full_name?.toLowerCase().includes(name) ||
-          p.email?.split('@')[0].toLowerCase().includes(name)
-        );
-        if (mentioned?.email) {
-          await sendEmail(
-            [mentioned.email],
-            `Te mencionaron en Solicitud #${s?.numero || ''}`,
-            `<p><strong>${currentProfile.full_name}</strong> te mencionó en un comentario de la solicitud <strong>${s?.nombre || ''}</strong>:</p><blockquote style="border-left:3px solid #f0c040;padding:8px 12px;margin:12px 0;color:#666;">${texto}</blockquote>`
-          );
-        }
+  // @mention emails in background (non-blocking)
+  const mentions = texto.match(/@(\w+(?:\s\w+)?)/g);
+  if (mentions) {
+    const s = solicitudes.find(x => x.id === solId);
+    for (const mention of mentions) {
+      const name = mention.replace('@', '').toLowerCase();
+      const mentioned = allProfiles.find(p =>
+        p.full_name?.toLowerCase().includes(name) ||
+        p.email?.split('@')[0].toLowerCase().includes(name)
+      );
+      if (mentioned?.email) {
+        sendEmail(
+          [mentioned.email],
+          `Te mencionaron en Solicitud #${s?.numero || ''}`,
+          `<p><strong>${currentProfile.full_name}</strong> te mencionó en un comentario:</p><blockquote style="border-left:3px solid #f0c040;padding:8px 12px;margin:12px 0;color:#666;">${texto}</blockquote>`
+        ).catch(e => console.warn('Mention email error:', e));
       }
     }
-  }, { label: 'Comentario' });
-  document.getElementById('newComment').value = '';
-  await openSolicitud(solId);
+  }
 }
 
 // @mention autocomplete
