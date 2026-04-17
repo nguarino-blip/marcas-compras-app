@@ -1813,10 +1813,7 @@ function renderActionBar(s, data) {
       }
       break;
     case 'Inspección pre-embarque':
-      html += `<p style="color:var(--txt2);font-size:13px;">Las inspecciones se aprueban individualmente abajo.</p>`;
-      if (isCalidad() || canApprove()) {
-        html += `<button class="btn-red" onclick="rechazarInspeccion('${sid}')" style="margin-top:8px;">Desaprobar inspección → Vuelve a producción</button>`;
-      }
+      html += `<p style="color:var(--txt2);font-size:13px;">Cada área aprueba o desaprueba su inspección en la sección de abajo. Si alguna se desaprueba, se indica el motivo y plazo para resolver, y queda disponible para volver a aprobar.</p>`;
       break;
     case 'Booking shipping':
       if (isComex() || canApprove()) {
@@ -1901,7 +1898,7 @@ function renderItems(items, s) {
 }
 
 function pill_item(status) {
-  const cls = status === 'aprobado' ? 'pill-approved' : status === 'rechazado' ? 'pill-rejected' : 'pill-pending';
+  const cls = status === 'aprobado' ? 'pill-approved' : (status === 'rechazado' || status === 'desaprobado') ? 'pill-rejected' : 'pill-pending';
   return `<span class="pill ${cls}">${status}</span>`;
 }
 
@@ -1921,13 +1918,29 @@ function renderInspecciones(inspecciones, s) {
   el.innerHTML = tipos.map(t => {
     const insp = inspecciones.find(i => i.tipo === t.key);
     const resultado = insp?.resultado || 'pendiente';
-    return `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);">
-      <div style="flex:1;font-size:14px;">${t.label}</div>
-      <div>${pill_item(resultado)}</div>
-      ${showInsp && resultado === 'pendiente' && t.canApproveRole() ? `
-        <button class="btn-green btn-sm" onclick="approveInspeccion('${s.id}','${t.key}')">Aprobar</button>
-        <button class="btn-red btn-sm" onclick="rejectInspeccion('${s.id}','${t.key}')">Desaprobar</button>
-      ` : ''}
+    const notas = insp?.notas || '';
+
+    // Parse rejection details if desaprobado
+    let rechazoInfo = '';
+    if (resultado === 'desaprobado' && notas) {
+      const plazoMatch = notas.match(/\[PLAZO: (.+?)\]/);
+      const motivo = notas.replace(/\[PLAZO: .+?\]\s*/, '');
+      rechazoInfo = `<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:6px;padding:8px 10px;margin-top:6px;font-size:12px;">
+        <div style="color:var(--red);font-weight:600;">Motivo: ${motivo}</div>
+        ${plazoMatch ? `<div style="color:var(--orange);margin-top:4px;">Plazo para resolver: <strong>${plazoMatch[1]}</strong></div>` : ''}
+      </div>`;
+    }
+
+    return `<div style="padding:10px 0;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="flex:1;font-size:14px;">${t.label}</div>
+        <div>${pill_item(resultado)}</div>
+        ${showInsp && (resultado === 'pendiente' || resultado === 'desaprobado') && t.canApproveRole() ? `
+          <button class="btn-green btn-sm" onclick="approveInspeccion('${s.id}','${t.key}')">Aprobar</button>
+          ${resultado !== 'desaprobado' ? `<button class="btn-red btn-sm" onclick="openDesaprobarInspeccionModal('${s.id}','${t.key}','${t.label}')">Desaprobar</button>` : `<button class="btn-red btn-sm" onclick="openDesaprobarInspeccionModal('${s.id}','${t.key}','${t.label}')">Re-desaprobar</button>`}
+        ` : ''}
+      </div>
+      ${rechazoInfo}
     </div>`;
   }).join('');
 }
@@ -2335,16 +2348,67 @@ async function approveInspeccion(solId, tipo) {
   toast('Inspección aprobada');
 }
 
-async function rejectInspeccion(solId, tipo) {
-  const motivo = prompt('Motivo de desaprobación:');
-  if (!motivo) return;
+function openDesaprobarInspeccionModal(solId, tipo, label) {
+  const m = document.createElement('div');
+  m.className = 'modal-overlay';
+  m.id = 'desaprobarInspModal';
+  m.innerHTML = `<div class="modal" style="max-width:500px;">
+    <h2 style="color:var(--red);margin-bottom:12px;">Desaprobar: ${label}</h2>
+    <div class="field">
+      <label>Motivo de la desaprobación</label>
+      <textarea id="inspRechazoMotivo" rows="3" placeholder="Describí el problema encontrado..."></textarea>
+    </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Plazo para resolver</label>
+      <select id="inspRechazoPlazo">
+        <option value="3 días">3 días</option>
+        <option value="5 días">5 días</option>
+        <option value="7 días" selected>7 días</option>
+        <option value="10 días">10 días</option>
+        <option value="15 días">15 días</option>
+        <option value="30 días">30 días</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn-outline" onclick="closeModal('desaprobarInspModal')">Cancelar</button>
+      <button class="btn-red" onclick="submitDesaprobarInspeccion('${solId}','${tipo}')">Confirmar desaprobación</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+}
+
+async function submitDesaprobarInspeccion(solId, tipo) {
+  const motivo = document.getElementById('inspRechazoMotivo').value.trim();
+  if (!motivo) return toast('Escribí el motivo de la desaprobación', true);
+  const plazo = document.getElementById('inspRechazoPlazo').value;
+
   const { data: insp } = await sb.from('inspecciones').select('*').eq('solicitud_id', solId).eq('tipo', tipo).single();
   if (insp) {
-    await sb.from('inspecciones').update({ resultado: 'desaprobado', notas: motivo }).eq('id', insp.id);
+    await sb.from('inspecciones').update({
+      resultado: 'desaprobado',
+      notas: `[PLAZO: ${plazo}] ${motivo}`
+    }).eq('id', insp.id);
   }
-  // Route back: Calidad/Marcas resolve
-  await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: `Inspección ${tipo} desaprobada`, detalle: motivo });
-  toast('Inspección desaprobada — Calidad y Marcas deben resolver');
+
+  const s = solicitudes.find(x => x.id === solId);
+  await sb.from('historial').insert({
+    solicitud_id: solId, actor_id: currentUser.id,
+    evento: `Inspección ${tipo} desaprobada`,
+    detalle: `Motivo: ${motivo} | Plazo: ${plazo}`
+  });
+
+  closeModal('desaprobarInspModal');
+
+  await sendEmail(
+    ['nguarino@cdimex.com.ar','mjaimes@cdimex.com.ar','nmaggi@cdimex.com.ar'].filter(Boolean),
+    `Solicitud #${s?.numero}: Inspección desaprobada - ${tipo}`,
+    wrapEmail(`<p>La inspección <strong>${tipo}</strong> de <strong>${s?.nombre}</strong> fue desaprobada.</p>
+      <p><strong>Motivo:</strong> ${motivo}</p>
+      <p><strong>Plazo para resolver:</strong> ${plazo}</p>
+      <p>Una vez corregido, se debe volver a aprobar en la app.</p>`)
+  );
+
+  toast(`Inspección desaprobada. Plazo: ${plazo}`);
   await loadSolicitudes();
   await openSolicitud(solId);
 }
