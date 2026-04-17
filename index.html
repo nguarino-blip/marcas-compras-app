@@ -92,6 +92,14 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);}
 .section h3{color:var(--gold);font-size:15px;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border);}
 .action-bar{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0;}
 
+/* Type buttons grid */
+.tipo-btns{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:20px;}
+.tipo-btn{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:18px 16px;cursor:pointer;transition:all .25s;text-align:left;}
+.tipo-btn:hover{border-color:var(--gold);transform:translateY(-2px);box-shadow:0 4px 16px rgba(240,192,64,.12);}
+.tipo-btn .tipo-icon{font-size:24px;margin-bottom:6px;}
+.tipo-btn .tipo-title{font-size:14px;font-weight:700;color:var(--gold);margin-bottom:2px;}
+.tipo-btn .tipo-desc{font-size:12px;color:var(--txt2);line-height:1.4;}
+
 /* Items table */
 .items-table{width:100%;border-collapse:collapse;}
 .items-table th{background:var(--bg3);color:var(--txt2);padding:8px;font-size:12px;text-align:left;}
@@ -487,7 +495,29 @@ function renderDashboard(c) {
       <div class="kpi"><div class="num" style="color:var(--violet)">${myPending.length}</div><div class="label">Requieren tu acción</div></div>
       <div class="kpi"><div class="num" style="color:var(--green)">${solicitudes.filter(s=>s.status==='Completado').length}</div><div class="label">Completadas</div></div>
     </div>
-    ${canCreateSolicitud() ? '<button class="btn-gold" onclick="openNewSolicitud()" style="margin-bottom:16px;">+ Nueva Solicitud</button>' : ''}
+    ${canCreateSolicitud() ? `
+    <div class="tipo-btns">
+      <div class="tipo-btn" onclick="openNewSolicitud('Nuevos desarrollos')">
+        <div class="tipo-icon">🚀</div>
+        <div class="tipo-title">Nuevos desarrollos</div>
+        <div class="tipo-desc">Desarrollo de nuevos productos o líneas</div>
+      </div>
+      <div class="tipo-btn" onclick="openNewSolicitud('Cambio de proveedor')">
+        <div class="tipo-icon">🔄</div>
+        <div class="tipo-title">Cambio de proveedor</div>
+        <div class="tipo-desc">Reemplazar proveedor manteniendo el producto</div>
+      </div>
+      <div class="tipo-btn" onclick="openNewSolicitud('Traspaso compra local al exterior')">
+        <div class="tipo-icon">🌍</div>
+        <div class="tipo-title">Traspaso al exterior</div>
+        <div class="tipo-desc">Migrar compra local a importación</div>
+      </div>
+      <div class="tipo-btn" onclick="openNewSolicitud('Compras regulares')">
+        <div class="tipo-icon">📦</div>
+        <div class="tipo-title">Compras regulares</div>
+        <div class="tipo-desc">Reposición de stock e insumos recurrentes</div>
+      </div>
+    </div>` : ''}
     <h3 style="color:var(--gold);margin-bottom:12px;">Requieren tu acción</h3>
     <div class="grid grid-2">
       ${myPending.length ? myPending.map(s => solicitudCard(s)).join('') : '<p style="color:var(--txt2)">Sin pendientes</p>'}
@@ -515,7 +545,12 @@ function solicitudCard(s) {
 // =============================================
 function renderSolicitudes(c) {
   c.innerHTML = `
-    ${canCreateSolicitud() ? '<button class="btn-gold" onclick="openNewSolicitud()" style="margin-bottom:16px;">+ Nueva Solicitud</button>' : ''}
+    ${canCreateSolicitud() ? `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+      <button class="btn-gold" onclick="openNewSolicitud('Nuevos desarrollos')">+ Nuevos desarrollos</button>
+      <button class="btn-violet" onclick="openNewSolicitud('Cambio de proveedor')">+ Cambio proveedor</button>
+      <button class="btn-blue" onclick="openNewSolicitud('Traspaso compra local al exterior')">+ Traspaso exterior</button>
+      <button class="btn-green" onclick="openNewSolicitud('Compras regulares')">+ Compras regulares</button>
+    </div>` : ''}
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
       <input type="text" id="searchSol" placeholder="Buscar..." style="max-width:250px;" oninput="filterSolicitudes()">
       <select id="filterStatus" onchange="filterSolicitudes()" style="max-width:220px;">
@@ -581,19 +616,17 @@ function renderComex(c) {
 // =============================================
 // NEW SOLICITUD MODAL
 // =============================================
-function openNewSolicitud() {
+function openNewSolicitud(preselectedTipo) {
+  const tipos = ['Nuevos desarrollos','Cambio de proveedor','Traspaso compra local al exterior','Compras regulares'];
   const m = document.createElement('div');
   m.className = 'modal-overlay';
   m.id = 'newSolModal';
   m.innerHTML = `<div class="modal">
-    <h2>Nueva Solicitud</h2>
+    <h2>Nueva Solicitud — ${preselectedTipo || 'Seleccionar tipo'}</h2>
     <div class="field">
       <label>Tipo de solicitud</label>
       <select id="nsTipo" onchange="toggleTipoFields()">
-        <option value="Nuevos desarrollos">Nuevos desarrollos</option>
-        <option value="Cambio de proveedor">Cambio de proveedor</option>
-        <option value="Traspaso compra local al exterior">Traspaso compra local al exterior</option>
-        <option value="Compras regulares">Compras regulares</option>
+        ${tipos.map(t => `<option value="${t}" ${t === preselectedTipo ? 'selected' : ''}>${t}</option>`).join('')}
       </select>
     </div>
     <div class="row">
@@ -1208,16 +1241,16 @@ function renderItems(items, s) {
 
   el.innerHTML = `<table class="items-table">
     <tr>
-      <th>Ítem</th><th>Tipo</th><th>Estético</th><th>Técnico</th><th>Especial</th>
+      <th>Ítem</th><th>Tipo</th><th>Detalle</th><th>Estético</th><th>Técnico</th>
       ${showAestheticApproval ? '<th>Acciones</th>' : ''}
       <th>Compra parcial</th>
     </tr>
     ${items.map(it => `<tr>
       <td>${it.nombre}</td>
       <td>${it.tipo_producto || '-'}</td>
+      <td style="font-size:12px;color:var(--txt2);max-width:180px;">${it.notas || (it.tratamiento_especial ? `<span style="color:var(--orange)">${it.tratamiento_especial}</span>` : '-')}</td>
       <td>${pill_item(it.status_estetico)}</td>
       <td>${pill_item(it.status_tecnico)}</td>
-      <td>${it.tratamiento_especial ? `<span style="color:var(--orange)">${it.tratamiento_especial}</span>` : '-'}</td>
       ${showAestheticApproval && it.status_estetico === 'pendiente' ? `<td>
         <button class="btn-green btn-sm" onclick="approveItemAesthetic('${it.id}','${s.id}')">Aprobar</button>
         <button class="btn-red btn-sm" onclick="rejectItemAesthetic('${it.id}','${s.id}')">Rechazar</button>
@@ -1242,9 +1275,9 @@ function pill_item(status) {
 function renderInspecciones(inspecciones, s) {
   const el = document.getElementById('inspeccionesSection');
   const tipos = [
-    { key: 'calidad_funcional', label: 'Calidad - Funcionalidad', canApproveRole: () => isCalidad() },
-    { key: 'estetica_marcas', label: 'Marcas - Estética', canApproveRole: () => isMarcas() },
-    { key: 'comex_packing', label: 'Comex - Packing List & Shipping Marks', canApproveRole: () => isComex() }
+    { key: 'calidad_funcional', label: 'Calidad - Funcionalidad', canApproveRole: () => isCalidad() || canApprove() },
+    { key: 'estetica_marcas', label: 'Marcas - Estética', canApproveRole: () => isMarcas() || canApprove() },
+    { key: 'comex_packing', label: 'Comex - Packing List & Shipping Marks', canApproveRole: () => isComex() || canApprove() }
   ];
 
   const showInsp = s.status === 'Inspección pre-embarque';
