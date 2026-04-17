@@ -1268,6 +1268,23 @@ async function comexTakeOver(id) {
   // Create comex tracking record
   await sb.from('comex_seguimiento').insert({ solicitud_id: id });
   await updateStatus(id, 'Comex - Pago y seguimiento', 'Comex tomó seguimiento', null);
+
+  // Sync to Google Sheets
+  const s = solicitudes.find(x => x.id === id);
+  try {
+    await fetch('/api/sheets-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': 'cdimex-internal-2024' },
+      body: JSON.stringify({
+        action: 'write', solicitudId: id,
+        data: {
+          numero: s?.numero, nombre: s?.nombre, marca: s?.marca, tipo: s?.tipo,
+          fecha_oc: new Date().toISOString().split('T')[0],
+          pago_status: 'pendiente', estado: 'Comex - Pago y seguimiento'
+        }
+      })
+    });
+  } catch (e) { console.warn('Sheets sync error:', e); }
 }
 
 async function markInTransit(id) {
@@ -1387,6 +1404,21 @@ async function editComex(comexId) {
   await sb.from('comex_seguimiento').update({
     pago_exterior_status: pago, packing_list_ok: packing, shipping_marks_ok: shipping, notas
   }).eq('id', comexId);
+
+  // Sync update to Google Sheets
+  if (viewingSolicitud) {
+    try {
+      await fetch('/api/sheets-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': 'cdimex-internal-2024' },
+        body: JSON.stringify({
+          action: 'update', solicitudId: viewingSolicitud,
+          data: { pago_status: pago, packing_list: packing ? 'OK' : 'Pendiente', shipping_marks: shipping ? 'OK' : 'Pendiente', notas }
+        })
+      });
+    } catch (e) { console.warn('Sheets sync error:', e); }
+  }
+
   toast('Seguimiento Comex actualizado');
   if (viewingSolicitud) await openSolicitud(viewingSolicitud);
 }
