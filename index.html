@@ -1965,7 +1965,11 @@ async function comexTakeOver(id) {
     await sb.from('comex_seguimiento').insert({ solicitud_id: id });
   }
   await completePasoByName(id, 'Proforma invoice y pago');
-  await updateStatus(id, 'Comex - Proforma y pago', 'Comex gestionando proforma y pago', null);
+  const sComex = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Comex - Proforma y pago', 'Comex gestionando proforma y pago', null,
+    ['nguarino@cdimex.com.ar','mjaimes@cdimex.com.ar', sComex?.profiles?.email].filter(Boolean),
+    `Solicitud #${sComex?.numero}: Comex gestiona proforma y pago`,
+    `<p>La solicitud <strong>${sComex?.nombre}</strong> pasó a Comex. Se gestiona proforma invoice y pago.</p>`);
 
   // Sync to Google Sheets
   const s = solicitudes.find(x => x.id === id);
@@ -1996,7 +2000,11 @@ async function comexOrdenProduccion(id) {
 
 async function markEnProduccion(id) {
   await completePasoByName(id, 'Producción');
-  await updateStatus(id, 'En producción', 'Producción iniciada', null);
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'En producción', 'Producción iniciada', null,
+    ['nguarino@cdimex.com.ar','mjaimes@cdimex.com.ar', s?.profiles?.email].filter(Boolean),
+    `Solicitud #${s?.numero}: Producción iniciada`,
+    `<p>La producción de <strong>${s?.nombre}</strong> comenzó.</p>`);
 }
 
 async function produccionFinalizada(id) {
@@ -2010,7 +2018,11 @@ async function produccionFinalizada(id) {
     ]);
   }
   await completePasoByName(id, 'Inspección pre-embarque');
-  await updateStatus(id, 'Inspección pre-embarque', 'Producción finalizada - Inspección pre-embarque iniciada', null);
+  const sProd = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Inspección pre-embarque', 'Producción finalizada - Inspección pre-embarque iniciada', null,
+    ['nguarino@cdimex.com.ar','nmaggi@cdimex.com.ar','abenitez@cdimex.com.ar'].filter(Boolean),
+    `Solicitud #${sProd?.numero}: Producción finalizada - Inspección`,
+    `<p>La producción de <strong>${sProd?.nombre}</strong> finalizó. Se inicia la inspección pre-embarque.</p>`);
 }
 
 async function markShipped(id) {
@@ -2034,7 +2046,11 @@ async function markShipped(id) {
 
 async function markNacionalizacion(id) {
   await completePasoByName(id, 'Nacionalización');
-  await updateStatus(id, 'Nacionalización', 'Mercadería arribó - En nacionalización', null);
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Nacionalización', 'Mercadería arribó - En nacionalización', null,
+    ['nguarino@cdimex.com.ar','mjaimes@cdimex.com.ar', s?.profiles?.email].filter(Boolean),
+    `Solicitud #${s?.numero}: Mercadería arribó - Nacionalización`,
+    `<p>La mercadería de <strong>${s?.nombre}</strong> arribó. Comienza el proceso de nacionalización.</p>`);
 }
 
 async function markCompleted(id) {
