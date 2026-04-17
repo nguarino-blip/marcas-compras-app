@@ -248,7 +248,7 @@ const STATUS_LIST = [
   'Aprobada - Lista para OC','OC emitida',
   'Comex - Proforma y pago','Orden de producción','En producción',
   'Inspección pre-embarque','Booking shipping',
-  'En tránsito','Nacionalización','Completado','Rechazada'
+  'En tránsito','Nacionalización','Completado','Rechazada','Eliminada'
 ];
 
 const STATUS_PILL_CLASS = {
@@ -261,7 +261,7 @@ const STATUS_PILL_CLASS = {
   'Comex - Proforma y pago':'pill-comex','Orden de producción':'pill-comex',
   'En producción':'pill-active','Inspección pre-embarque':'pill-calidad',
   'Booking shipping':'pill-comex','En tránsito':'pill-comex',
-  'Nacionalización':'pill-comex','Completado':'pill-approved','Rechazada':'pill-rejected'
+  'Nacionalización':'pill-comex','Completado':'pill-approved','Rechazada':'pill-rejected','Eliminada':'pill-rejected'
 };
 
 const PROD_DAYS = {'Frasco vidrio':48,'Frasco plástico':40,'Estuche':35,'Insumo':30,'GWP':30,'Otro':45};
@@ -331,6 +331,44 @@ const RETROPLAN_TEMPLATES = {
     {nombre:'Proforma invoice y pago',dias:170,responsable:'comex'},
     {nombre:'Orden de producción',dias:165,responsable:'comex'},
     {nombre:'Producción',dias:160,responsable:'compras'},
+    {nombre:'Inspección pre-embarque',dias:50,responsable:'calidad'},
+    {nombre:'Booking shipping',dias:45,responsable:'comex'},
+    {nombre:'Shipping / Tránsito',dias:40,responsable:'comex'},
+    {nombre:'Nacionalización',dias:5,responsable:'comex'},
+    {nombre:'Recepción',dias:0,responsable:'compras'}
+  ],
+  'Adaptación de desarrollo': [
+    {nombre:'Aprobación Compras',dias:222,responsable:'compras'},
+    {nombre:'Propuesta de proveedores',dias:220,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:218,responsable:'__COTIZ__'},
+    {nombre:'Pedido de muestras',dias:203,responsable:'compras'},
+    {nombre:'Muestras en tránsito',dias:198,responsable:'compras'},
+    {nombre:'Aprobación estética (Marcas)',dias:185,responsable:'marcas'},
+    {nombre:'Muestras técnicas',dias:175,responsable:'compras'},
+    {nombre:'Aprobación Calidad',dias:165,responsable:'calidad'},
+    {nombre:'Emisión OC',dias:160,responsable:'compras'},
+    {nombre:'Proforma invoice y pago',dias:155,responsable:'comex'},
+    {nombre:'Orden de producción',dias:150,responsable:'comex'},
+    {nombre:'Producción',dias:145,responsable:'compras'},
+    {nombre:'Inspección pre-embarque',dias:50,responsable:'calidad'},
+    {nombre:'Booking shipping',dias:45,responsable:'comex'},
+    {nombre:'Shipping / Tránsito',dias:40,responsable:'comex'},
+    {nombre:'Nacionalización',dias:5,responsable:'comex'},
+    {nombre:'Recepción',dias:0,responsable:'compras'}
+  ],
+  'Set, Cofres y Otros': [
+    {nombre:'Aprobación Compras',dias:182,responsable:'compras'},
+    {nombre:'Propuesta de proveedores',dias:180,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:178,responsable:'__COTIZ__'},
+    {nombre:'Pedido de muestras',dias:163,responsable:'compras'},
+    {nombre:'Muestras en tránsito',dias:158,responsable:'compras'},
+    {nombre:'Aprobación estética (Marcas)',dias:145,responsable:'marcas'},
+    {nombre:'Muestras técnicas',dias:135,responsable:'compras'},
+    {nombre:'Aprobación Calidad',dias:125,responsable:'calidad'},
+    {nombre:'Emisión OC',dias:120,responsable:'compras'},
+    {nombre:'Proforma invoice y pago',dias:115,responsable:'comex'},
+    {nombre:'Orden de producción',dias:110,responsable:'comex'},
+    {nombre:'Producción',dias:105,responsable:'compras'},
     {nombre:'Inspección pre-embarque',dias:50,responsable:'calidad'},
     {nombre:'Booking shipping',dias:45,responsable:'comex'},
     {nombre:'Shipping / Tránsito',dias:40,responsable:'comex'},
@@ -488,6 +526,11 @@ function isComex() {
 function isCalidad() {
   return currentProfile?.sub_roles?.includes('calidad');
 }
+function canDelete() {
+  // Only Nicolás Guarino and Mariángeles Jaimes can delete
+  const email = currentProfile?.email?.toLowerCase();
+  return email === 'nguarino@cdimex.com.ar' || email === 'mjaimes@cdimex.com.ar' || canApprove();
+}
 
 // =============================================
 // UI HELPERS
@@ -536,7 +579,7 @@ function switchTab(tab) {
 // DASHBOARD
 // =============================================
 function renderDashboard(c) {
-  const activas = solicitudes.filter(s => !['Completado','Rechazada'].includes(s.status));
+  const activas = solicitudes.filter(s => !['Completado','Rechazada','Eliminada'].includes(s.status));
   const pending = solicitudes.filter(s => s.status === 'Pendiente aprobación Compras');
   const myPending = solicitudes.filter(s => {
     if (isMarcas()) return s.status.includes('Marcas') && s.created_by === currentUser.id;
@@ -602,6 +645,16 @@ function renderDashboard(c) {
         <div class="tipo-icon">🌍</div>
         <div class="tipo-title">Traspaso al exterior</div>
         <div class="tipo-desc">Migrar compra local a importación</div>
+      </div>
+      <div class="tipo-btn" onclick="openNewSolicitud('Adaptación de desarrollo')">
+        <div class="tipo-icon">🔄</div>
+        <div class="tipo-title">Adaptación de desarrollo</div>
+        <div style="font-size:12px;color:var(--txt2);">Adaptar un producto existente</div>
+      </div>
+      <div class="tipo-btn" onclick="openNewSolicitud('Set, Cofres y Otros')">
+        <div class="tipo-icon">🎁</div>
+        <div class="tipo-title">Set, Cofres y Otros</div>
+        <div style="font-size:12px;color:var(--txt2);">Sets, cofres, combos y especiales</div>
       </div>
       <div class="tipo-btn" onclick="openNewSolicitud('Compras regulares')">
         <div class="tipo-icon">📦</div>
@@ -699,15 +752,18 @@ function showDashboardList(type) {
     </div>`;
 }
 
-function solicitudCard(s) {
-  return `<div class="card" onclick="openSolicitud('${s.id}')" style="cursor:pointer;">
-    <div style="display:flex;justify-content:space-between;align-items:start;">
-      <h3>#${s.numero} — ${s.nombre}</h3>
-      ${pill(s.status)}
+function solicitudCard(s, showCheckbox = false) {
+  return `<div class="card" style="cursor:pointer;display:flex;align-items:start;gap:10px;">
+    ${showCheckbox && canDelete() ? `<input type="checkbox" class="sol-check" value="${s.id}" onclick="event.stopPropagation()" style="margin-top:4px;min-width:16px;">` : ''}
+    <div onclick="openSolicitud('${s.id}')" style="flex:1;">
+      <div style="display:flex;justify-content:space-between;align-items:start;">
+        <h3>#${s.numero} — ${s.nombre}</h3>
+        ${pill(s.status)}
+      </div>
+      <div class="meta">${s.marca} · ${s.tipo}${s.descripcion?.includes('[Origen: Compra Local]') ? ' · <span style="color:var(--green);">LOCAL</span>' : ''}</div>
+      <div class="meta">Creado por: ${s.profiles?.full_name || 'N/A'} · ${fmtDate(s.created_at?.split('T')[0])}</div>
+      ${s.fecha_lanzamiento ? `<div class="meta">Lanzamiento: ${fmtDate(s.fecha_lanzamiento)}</div>` : ''}
     </div>
-    <div class="meta">${s.marca} · ${s.tipo}</div>
-    <div class="meta">Creado por: ${s.profiles?.full_name || 'N/A'} · ${fmtDate(s.created_at?.split('T')[0])}</div>
-    ${s.fecha_lanzamiento ? `<div class="meta">Lanzamiento: ${fmtDate(s.fecha_lanzamiento)}</div>` : ''}
   </div>`;
 }
 
@@ -721,6 +777,8 @@ function renderSolicitudes(c) {
       <button class="btn-violet" onclick="openNewSolicitud('Cambio de proveedor')">+ Cambio proveedor</button>
       <button class="btn-blue" onclick="openNewSolicitud('Traspaso compra local al exterior')">+ Traspaso exterior</button>
       <button class="btn-green" onclick="openNewSolicitud('Compras regulares')">+ Compras regulares</button>
+      <button class="btn-outline" onclick="openNewSolicitud('Adaptación de desarrollo')">+ Adaptación</button>
+      <button class="btn-outline" onclick="openNewSolicitud('Set, Cofres y Otros')">+ Set/Cofres</button>
     </div>` : ''}
     <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
       <input type="text" id="searchSol" placeholder="Buscar..." style="max-width:250px;" oninput="filterSolicitudes()">
@@ -733,9 +791,19 @@ function renderSolicitudes(c) {
         ${MARCAS.map(m => `<option value="${m}">${m}</option>`).join('')}
       </select>
     </div>
+    ${canDelete() ? `<div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+      <label style="font-size:12px;color:var(--txt2);display:flex;align-items:center;gap:4px;">
+        <input type="checkbox" id="selectAllSol" onchange="toggleSelectAll(this.checked)"> Seleccionar todo
+      </label>
+      <button class="btn-red btn-sm" onclick="eliminarMasivo()">🗑 Eliminar seleccionadas</button>
+    </div>` : ''}
     <div id="solList" class="grid grid-2">
-      ${solicitudes.map(s => solicitudCard(s)).join('')}
+      ${solicitudes.filter(s => s.status !== 'Eliminada').map(s => solicitudCard(s, true)).join('')}
     </div>`;
+}
+
+function toggleSelectAll(checked) {
+  document.querySelectorAll('.sol-check').forEach(c => c.checked = checked);
 }
 
 function filterSolicitudes() {
@@ -745,8 +813,9 @@ function filterSolicitudes() {
   let filtered = solicitudes;
   if (q) filtered = filtered.filter(s => s.nombre.toLowerCase().includes(q) || String(s.numero).includes(q));
   if (st) filtered = filtered.filter(s => s.status === st);
+  else filtered = filtered.filter(s => s.status !== 'Eliminada'); // Hide eliminated by default
   if (mk) filtered = filtered.filter(s => s.marca === mk);
-  document.getElementById('solList').innerHTML = filtered.map(s => solicitudCard(s)).join('') || '<p style="color:var(--txt2)">Sin resultados</p>';
+  document.getElementById('solList').innerHTML = filtered.map(s => solicitudCard(s, true)).join('') || '<p style="color:var(--txt2)">Sin resultados</p>';
 }
 
 // =============================================
@@ -788,11 +857,11 @@ function renderComex(c) {
 // NEW SOLICITUD MODAL
 // =============================================
 function openNewSolicitud(preselectedTipo) {
-  const tipos = ['Nuevos desarrollos','Cambio de proveedor','Traspaso compra local al exterior','Compras regulares'];
+  const tipos = ['Nuevos desarrollos','Cambio de proveedor','Traspaso compra local al exterior','Compras regulares','Adaptación de desarrollo','Set, Cofres y Otros'];
   const m = document.createElement('div');
   m.className = 'modal-overlay';
   m.id = 'newSolModal';
-  m.innerHTML = `<div class="modal">
+  m.innerHTML = `<div class="modal" style="max-height:90vh;overflow-y:auto;">
     <h2>Nueva Solicitud — ${preselectedTipo || 'Seleccionar tipo'}</h2>
     <div class="field">
       <label>Tipo de solicitud</label>
@@ -800,6 +869,16 @@ function openNewSolicitud(preselectedTipo) {
         ${tipos.map(t => `<option value="${t}" ${t === preselectedTipo ? 'selected' : ''}>${t}</option>`).join('')}
       </select>
     </div>
+
+    <!-- Local / Exterior -->
+    <div class="field" id="localExteriorField">
+      <label>Origen de compra</label>
+      <select id="nsOrigenCompra">
+        <option value="exterior">Exterior (importación)</option>
+        <option value="local">Local (compra nacional)</option>
+      </select>
+    </div>
+
     <div class="row">
       <div class="field">
         <label>Marca</label>
@@ -820,6 +899,65 @@ function openNewSolicitud(preselectedTipo) {
     <div class="field">
       <label>Descripción</label>
       <textarea id="nsDesc" rows="3" placeholder="Descripción del desarrollo..."></textarea>
+    </div>
+
+    <!-- Códigos internos: para Cambio proveedor, Traspaso, Regulares, Adaptación -->
+    <div id="codigosInternosField" class="hidden">
+      <div class="field">
+        <label>Códigos internos del producto</label>
+        <div id="nsCodigosInternos"></div>
+        <button class="btn-outline btn-sm" onclick="addCodigoInterno()" style="margin-top:6px;">+ Agregar código</button>
+      </div>
+    </div>
+
+    <!-- Set / Cofres / Otros -->
+    <div id="setCofresFields" class="hidden">
+      <div style="background:var(--bg3);border-radius:10px;padding:16px;border:1px solid var(--border);">
+        <h3 style="color:var(--gold);font-size:14px;margin-bottom:12px;">Detalle del Set / Cofre</h3>
+        <div class="field">
+          <label>Subtipo</label>
+          <select id="nsSubtipoSet" onchange="toggleOtroSubtipo()">
+            <option value="Set">Set</option>
+            <option value="Cofre">Cofre</option>
+            <option value="Combo">Combo</option>
+            <option value="__otro__">Otro...</option>
+          </select>
+        </div>
+        <div class="field hidden" id="otroSubtipoField">
+          <label>Especificá el subtipo</label>
+          <input id="nsSubtipoOtro" placeholder="Ej: Gift Pack">
+        </div>
+
+        <div style="margin-top:12px;">
+          <label style="font-size:13px;font-weight:600;color:var(--gold);display:block;margin-bottom:8px;">Componentes</label>
+
+          <div style="margin-bottom:10px;">
+            <label style="font-size:12px;color:var(--txt2);">Productos principales</label>
+            <div id="nsProductosPrincipales"></div>
+            <button class="btn-outline btn-sm" onclick="addSetComponente('nsProductosPrincipales','Producto principal')" style="margin-top:4px;">+ Producto principal</button>
+          </div>
+
+          <div style="margin-bottom:10px;">
+            <label style="font-size:12px;color:var(--txt2);">Accesorios</label>
+            <div id="nsAccesorios"></div>
+            <button class="btn-outline btn-sm" onclick="addSetComponente('nsAccesorios','Accesorio')" style="margin-top:4px;">+ Accesorio</button>
+          </div>
+
+          <div class="field">
+            <label>Packaging secundario</label>
+            <input id="nsPackagingSecundario" placeholder="Descripción del packaging secundario">
+          </div>
+          <div class="field">
+            <label>Consideraciones especiales</label>
+            <textarea id="nsConsideraciones" rows="2" placeholder="Notas adicionales, restricciones, etc."></textarea>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:10px;">
+          <label>Fecha de necesidad de Sell In</label>
+          <input type="date" id="nsFechaSellInSet">
+        </div>
+      </div>
     </div>
 
     <!-- FECHAS: Nuevos desarrollos -->
@@ -969,8 +1107,49 @@ function toggleCotizNombre() {
 function toggleTipoFields() {
   const tipo = document.getElementById('nsTipo').value;
   document.getElementById('fechasNuevoDesarrollo').classList.toggle('hidden', tipo !== 'Nuevos desarrollos');
-  document.getElementById('fechasNecesidad').classList.toggle('hidden', tipo !== 'Cambio de proveedor' && tipo !== 'Traspaso compra local al exterior');
+  document.getElementById('fechasNecesidad').classList.toggle('hidden',
+    tipo !== 'Cambio de proveedor' && tipo !== 'Traspaso compra local al exterior' && tipo !== 'Adaptación de desarrollo');
   document.getElementById('fechasRegulares').classList.toggle('hidden', tipo !== 'Compras regulares');
+  document.getElementById('codigosInternosField').classList.toggle('hidden',
+    !['Cambio de proveedor','Traspaso compra local al exterior','Compras regulares','Adaptación de desarrollo'].includes(tipo));
+  document.getElementById('setCofresFields').classList.toggle('hidden', tipo !== 'Set, Cofres y Otros');
+  // Local/Exterior visible for all except Set/Cofres
+  document.getElementById('localExteriorField').classList.toggle('hidden', tipo === 'Set, Cofres y Otros');
+
+  // Initialize first código if empty
+  if (['Cambio de proveedor','Traspaso compra local al exterior','Compras regulares','Adaptación de desarrollo'].includes(tipo)) {
+    const container = document.getElementById('nsCodigosInternos');
+    if (!container.children.length) addCodigoInterno();
+  }
+}
+
+function toggleOtroSubtipo() {
+  const v = document.getElementById('nsSubtipoSet').value;
+  document.getElementById('otroSubtipoField').classList.toggle('hidden', v !== '__otro__');
+}
+
+function addCodigoInterno() {
+  const container = document.getElementById('nsCodigosInternos');
+  const idx = container.children.length;
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
+  row.innerHTML = `<input class="codigo-interno-val" placeholder="Código interno #${idx+1}" style="flex:1;">
+    ${idx > 0 ? '<button class="btn-outline btn-sm" onclick="this.parentElement.remove()" style="padding:4px 8px;">✕</button>' : ''}`;
+  container.appendChild(row);
+}
+
+function addSetComponente(containerId, label) {
+  const container = document.getElementById(containerId);
+  const idx = container.children.length;
+  const row = document.createElement('div');
+  row.className = 'set-componente';
+  row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
+  row.innerHTML = `<input class="set-comp-nombre" placeholder="${label} #${idx+1}" style="flex:1;">
+    <label style="font-size:11px;white-space:nowrap;display:flex;align-items:center;gap:4px;">
+      <input type="checkbox" class="set-comp-existente" checked> Ya existe
+    </label>
+    <button class="btn-outline btn-sm" onclick="this.parentElement.remove()" style="padding:4px 8px;">✕</button>`;
+  container.appendChild(row);
 }
 
 function calcularAnalisisRegular() {
@@ -1200,19 +1379,26 @@ async function submitSolicitud() {
   const costo = parseFloat(document.getElementById('nsCosto').value) || null;
   const cotiz = document.getElementById('nsCotiz').value;
   const cotizNombre = document.getElementById('nsCotizNombre')?.value?.trim() || null;
+  const origenCompra = document.getElementById('nsOrigenCompra')?.value || 'exterior';
+
+  // Collect códigos internos
+  const codigosEls = document.querySelectorAll('.codigo-interno-val');
+  const codigosInternos = [];
+  codigosEls.forEach(el => { if (el.value.trim()) codigosInternos.push(el.value.trim()); });
 
   // Determine dates based on tipo
   let sellIn = null, lanzamiento = null, fechaNecesidad = null;
   let datosRegulares = null;
+  let datosSet = null;
 
   if (tipo === 'Nuevos desarrollos') {
     sellIn = document.getElementById('nsSellIn').value || null;
     lanzamiento = document.getElementById('nsLanzamiento').value || null;
     const fechaProd = document.getElementById('nsFechaProduccion').value || null;
     if (!lanzamiento) return toast('La fecha de lanzamiento es obligatoria', true);
-  } else if (tipo === 'Cambio de proveedor' || tipo === 'Traspaso compra local al exterior') {
+  } else if (tipo === 'Cambio de proveedor' || tipo === 'Traspaso compra local al exterior' || tipo === 'Adaptación de desarrollo') {
     fechaNecesidad = document.getElementById('nsFechaNecesidad').value || null;
-    lanzamiento = fechaNecesidad; // Use necesidad as launch for retroplan
+    lanzamiento = fechaNecesidad;
     if (!fechaNecesidad) return toast('La fecha de necesidad es obligatoria', true);
   } else if (tipo === 'Compras regulares') {
     const stockInsumo = document.getElementById('nsStockInsumo').value;
@@ -1227,6 +1413,31 @@ async function submitSolicitud() {
     lanzamiento = fechaNecesidad;
     if (!fechaNecesidad) return toast('Ejecutá el cálculo de fecha y cantidad primero', true);
     datosRegulares = { stockInsumo, stockPT, fcstM1, fcstM2, fcstM3, consumoXPT, leadTime, cantidadCompra };
+  } else if (tipo === 'Set, Cofres y Otros') {
+    const subtipoSel = document.getElementById('nsSubtipoSet').value;
+    const subtipo = subtipoSel === '__otro__' ? document.getElementById('nsSubtipoOtro').value.trim() : subtipoSel;
+    sellIn = document.getElementById('nsFechaSellInSet').value || null;
+    lanzamiento = sellIn; // Use sell-in as reference for retroplan
+    if (!lanzamiento) return toast('La fecha de necesidad de Sell In es obligatoria', true);
+
+    // Collect componentes
+    const prods = [];
+    document.querySelectorAll('#nsProductosPrincipales .set-componente').forEach(row => {
+      const n = row.querySelector('.set-comp-nombre')?.value?.trim();
+      if (n) prods.push({ nombre: n, existente: row.querySelector('.set-comp-existente')?.checked });
+    });
+    const accs = [];
+    document.querySelectorAll('#nsAccesorios .set-componente').forEach(row => {
+      const n = row.querySelector('.set-comp-nombre')?.value?.trim();
+      if (n) accs.push({ nombre: n, existente: row.querySelector('.set-comp-existente')?.checked });
+    });
+    datosSet = {
+      subtipo,
+      productos_principales: prods,
+      accesorios: accs,
+      packaging_secundario: document.getElementById('nsPackagingSecundario')?.value?.trim() || '',
+      consideraciones: document.getElementById('nsConsideraciones')?.value?.trim() || ''
+    };
   }
 
   if (!marca) return toast('Seleccioná una marca', true);
@@ -1279,13 +1490,27 @@ async function submitSolicitud() {
   const descRefs = referencias.filter(r => r.tipo === 'descripcion').map(r => r.valor);
   const fullDesc = [desc, ...descRefs.map(d => 'Ref: ' + d)].filter(Boolean).join('\n');
 
+  // Build extra description parts
+  let extraDesc = '';
+  if (datosRegulares) extraDesc += `\n--- Análisis Compra Regular ---\nStock Insumo: ${datosRegulares.stockInsumo} | Stock PT: ${datosRegulares.stockPT}\nForecast 3M: ${datosRegulares.fcstM1}/${datosRegulares.fcstM2}/${datosRegulares.fcstM3}\nConsumo x PT: ${datosRegulares.consumoXPT} | Lead time: ${datosRegulares.leadTime} días\nCantidad a comprar: ${datosRegulares.cantidadCompra}`;
+  if (codigosInternos.length) extraDesc += `\n--- Códigos internos ---\n${codigosInternos.join(', ')}`;
+  if (datosSet) {
+    extraDesc += `\n--- ${datosSet.subtipo} ---`;
+    if (datosSet.productos_principales.length) extraDesc += `\nProductos principales: ${datosSet.productos_principales.map(p => p.nombre + (p.existente ? ' (existente)' : ' (a desarrollar)')).join(', ')}`;
+    if (datosSet.accesorios.length) extraDesc += `\nAccesorios: ${datosSet.accesorios.map(a => a.nombre + (a.existente ? ' (existente)' : ' (a desarrollar)')).join(', ')}`;
+    if (datosSet.packaging_secundario) extraDesc += `\nPackaging: ${datosSet.packaging_secundario}`;
+    if (datosSet.consideraciones) extraDesc += `\nConsideraciones: ${datosSet.consideraciones}`;
+  }
+  extraDesc += `\n[Origen: ${origenCompra === 'local' ? 'Compra Local' : 'Exterior (importación)'}]`;
+
   // Create solicitud
   const { data: sol, error } = await sb.from('solicitudes').insert({
-    tipo, marca, nombre, descripcion: fullDesc + (datosRegulares ? `\n--- Análisis Compra Regular ---\nStock Insumo: ${datosRegulares.stockInsumo} | Stock PT: ${datosRegulares.stockPT}\nForecast 3M: ${datosRegulares.fcstM1}/${datosRegulares.fcstM2}/${datosRegulares.fcstM3}\nConsumo x PT: ${datosRegulares.consumoXPT} | Lead time: ${datosRegulares.leadTime} días\nCantidad a comprar: ${datosRegulares.cantidadCompra}` : ''),
+    tipo, marca, nombre, descripcion: fullDesc + extraDesc,
     fecha_sell_in: sellIn, fecha_lanzamiento: lanzamiento,
     costo_objetivo: costo, cotizacion_responsable: cotiz,
     cotizacion_responsable_nombre: cotizNombre,
     links_referencia: links,
+    notas: codigosInternos.length ? `[CODIGOS] ${codigosInternos.join(', ')}` : null,
     status: 'Pendiente aprobación Compras',
     created_by: currentUser.id
   }).select().single();
@@ -1356,11 +1581,14 @@ function renderSolicitudDetail(c, data) {
   const isOwner = s.created_by === currentUser.id;
 
   c.innerHTML = `
-    <button class="btn-outline btn-sm" onclick="switchTab(currentTab)" style="margin-bottom:16px;">← Volver</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <button class="btn-outline btn-sm" onclick="switchTab(currentTab)">← Volver</button>
+      ${canDelete() && s.status !== 'Eliminada' ? `<button class="btn-red btn-sm" onclick="eliminarSolicitud('${s.id}')">🗑 Eliminar solicitud</button>` : ''}
+    </div>
     <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:12px;">
       <div>
         <h2 style="color:var(--gold);margin-bottom:4px;">#${s.numero} — ${s.nombre}</h2>
-        <div style="color:var(--txt2);font-size:14px;">${s.marca} · ${s.tipo} · Creado por ${s.profiles?.full_name || 'N/A'}</div>
+        <div style="color:var(--txt2);font-size:14px;">${s.marca} · ${s.tipo} · Creado por ${s.profiles?.full_name || 'N/A'}${s.descripcion?.includes('[Origen: Compra Local]') ? ' · <span style="color:var(--green);font-weight:600;">LOCAL</span>' : s.descripcion?.includes('[Origen: Exterior') ? ' · <span style="color:var(--blue);font-weight:600;">EXTERIOR</span>' : ''}</div>
       </div>
       <div>${pill(s.status)}</div>
     </div>
@@ -1390,6 +1618,19 @@ function renderSolicitudDetail(c, data) {
       </div>
       <div class="retroplan-timeline" id="retroplanTimeline"></div>
     </div>
+
+    ${s.tipo !== 'Nuevos desarrollos' ? `
+    <div class="section" style="margin-top:20px;">
+      <h3>Diseño final / Archivos</h3>
+      <div id="disenoFinalSection" style="margin-bottom:8px;"></div>
+      ${['Esperando muestras técnicas','Pendiente aprobación Calidad','Pendiente aprobación estética (Marcas)'].includes(s.status) || (isCompras() || isMarcas() || canApprove()) ? `
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <input type="text" id="newDisenoUrl" placeholder="URL del archivo (Google Drive, Dropbox, etc.)" style="flex:1;">
+          <button class="btn-outline btn-sm" onclick="addDisenoFinal('${s.id}')">+ Adjuntar diseño</button>
+        </div>
+        <small style="color:var(--txt2);font-size:11px;">Subí el archivo a Drive y pegá el link acá. Calidad podrá verlo.</small>
+      ` : ''}
+    </div>` : ''}
 
     <div class="grid grid-2">
       <div class="section">
@@ -1431,6 +1672,22 @@ function renderSolicitudDetail(c, data) {
   if (data.comex) renderComexDetail(data.comex, s);
   renderComments(data.comentarios);
   renderHistory(data.historial);
+
+  // Render diseño final links from notas
+  const disenoSection = document.getElementById('disenoFinalSection');
+  if (disenoSection) {
+    const disenoMatches = data.solicitud.notas?.match(/\[DISENO\] .+/g) || [];
+    if (disenoMatches.length) {
+      disenoSection.innerHTML = disenoMatches.map(d => {
+        const url = d.replace('[DISENO] ', '');
+        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;background:var(--bg3);padding:6px 10px;border-radius:6px;">
+          <span style="flex:1;font-size:13px;">📎 <a href="${url}" target="_blank" style="color:var(--gold);">${url.substring(0, 60)}${url.length > 60 ? '...' : ''}</a></span>
+        </div>`;
+      }).join('');
+    } else {
+      disenoSection.innerHTML = '<p style="color:var(--txt2);font-size:12px;">Sin diseño final adjunto aún.</p>';
+    }
+  }
 }
 
 // =============================================
@@ -1456,7 +1713,14 @@ function renderActionBar(s, data) {
       break;
     case 'Propuesta de proveedores':
       if (isCompras() || canApprove()) {
-        html += `<button class="btn-gold" onclick="propuestaProveedores('${sid}')">Proveedores propuestos → Cotización</button>`;
+        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Proveedores propuestos</label>
+          <div id="proveedoresList"></div>
+          <div style="display:flex;gap:6px;margin-top:4px;">
+            <input type="text" id="newProveedorInput" placeholder="Nombre del proveedor" style="flex:1;">
+            <button class="btn-outline btn-sm" onclick="addProveedorToList()">+ Agregar</button>
+          </div>
+        </div>`;
+        html += `<button class="btn-gold" onclick="propuestaProveedores('${sid}')" style="margin-top:8px;">Proveedores propuestos → Cotización</button>`;
       }
       break;
     case 'Cotización y negociación':
@@ -1501,12 +1765,20 @@ function renderActionBar(s, data) {
       if (isMarcas() || canApprove()) {
         html += `<p style="color:var(--txt2);font-size:13px;">Aprobá cada ítem individualmente en la sección de Items, o usá el botón para aprobar todos.</p>`;
         html += `<button class="btn-green" onclick="approveAllAesthetic('${sid}')">Aprobar todos los ítems</button>`;
-        html += `<button class="btn-red" onclick="rejectAllAesthetic('${sid}')">Rechazar todos</button>`;
+        html += `<button class="btn-red" onclick="openRechazoMuestraModal('${sid}')">Rechazar muestras (con fotos)</button>`;
       }
       break;
     case 'Esperando muestras técnicas':
+      if (isCompras() || canApprove()) {
+        html += `<p style="color:var(--txt2);font-size:13px;">Pedí nuevas muestras para pruebas técnicas. Cargá el tracking del courier.</p>`;
+        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Courier (ej: DHL, FedEx)</label><input type="text" id="muestraTecCourier" placeholder="DHL" style="max-width:200px;"></div>`;
+        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Tracking number</label><input type="text" id="muestraTecTracking" placeholder="1234567890" style="max-width:300px;"></div>`;
+        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Fecha de despacho</label><input type="date" id="muestraTecDespacho" style="max-width:200px;"></div>`;
+        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Fecha estimada arribo</label><input type="date" id="muestraTecETA" style="max-width:200px;"></div>`;
+        html += `<button class="btn-gold" onclick="despacharMuestrasTecnicas('${sid}')">Muestras técnicas despachadas</button>`;
+      }
       if (isCalidad() || isCompras()) {
-        html += `<button class="btn-gold" onclick="techSamplesArrived('${sid}')">Muestras técnicas recibidas</button>`;
+        html += `<button class="btn-green" onclick="techSamplesArrived('${sid}')" style="margin-left:8px;">Muestras técnicas recibidas → Calidad</button>`;
       }
       break;
     case 'Pendiente aprobación Calidad':
@@ -1542,6 +1814,9 @@ function renderActionBar(s, data) {
       break;
     case 'Inspección pre-embarque':
       html += `<p style="color:var(--txt2);font-size:13px;">Las inspecciones se aprueban individualmente abajo.</p>`;
+      if (isCalidad() || canApprove()) {
+        html += `<button class="btn-red" onclick="rechazarInspeccion('${sid}')" style="margin-top:8px;">Desaprobar inspección → Vuelve a producción</button>`;
+      }
       break;
     case 'Booking shipping':
       if (isComex() || canApprove()) {
@@ -1750,13 +2025,38 @@ async function resendInfo(id) {
     `<p>${currentProfile.full_name} actualizó la información de la solicitud <strong>${s.nombre}</strong>. Revisá y aprobá.</p>`);
 }
 
+function addProveedorToList() {
+  const input = document.getElementById('newProveedorInput');
+  const val = input.value.trim();
+  if (!val) return;
+  const list = document.getElementById('proveedoresList');
+  const tag = document.createElement('span');
+  tag.className = 'proveedor-tag';
+  tag.style.cssText = 'display:inline-flex;align-items:center;gap:4px;background:var(--bg3);border:1px solid var(--border);border-radius:16px;padding:4px 10px;margin:2px 4px 2px 0;font-size:12px;';
+  tag.innerHTML = `${val} <span onclick="this.parentElement.remove()" style="cursor:pointer;color:var(--red);font-weight:bold;">✕</span>`;
+  list.appendChild(tag);
+  input.value = '';
+  input.focus();
+}
+
 async function propuestaProveedores(id) {
+  // Collect proveedores from the list
+  const tags = document.querySelectorAll('#proveedoresList .proveedor-tag');
+  const proveedores = [];
+  tags.forEach(t => { const txt = t.textContent.replace('✕','').trim(); if (txt) proveedores.push(txt); });
+  if (!proveedores.length) return toast('Agregá al menos un proveedor a la lista', true);
+
   const s = solicitudes.find(x => x.id === id);
+
+  // Save proveedores in notas and historial
+  const notasActuales = s.notas || '';
+  await sb.from('solicitudes').update({ notas: notasActuales + `\n[PROVEEDORES] ${proveedores.join(', ')}` }).eq('id', id);
+
   await completePasoByName(id, 'Propuesta de proveedores');
-  await updateStatus(id, 'Cotización y negociación', 'Propuesta de proveedores enviada', null,
+  await updateStatus(id, 'Cotización y negociación', `Proveedores propuestos: ${proveedores.join(', ')}`, null,
     ['nmaggi@cdimex.com.ar','mjaimes@cdimex.com.ar'].filter(Boolean),
     `Solicitud #${s.numero}: Proveedores propuestos`,
-    `<p>Se presentó la propuesta de proveedores para <strong>${s.nombre}</strong>. Inicia la etapa de cotización y negociación.</p>`);
+    `<p>Se presentó la propuesta de proveedores para <strong>${s.nombre}</strong>:</p><ul>${proveedores.map(p => `<li>${p}</li>`).join('')}</ul><p>Inicia la etapa de cotización y negociación.</p>`);
 }
 
 async function cotizacionLista(id) {
@@ -1870,22 +2170,122 @@ async function approveAllAesthetic(solId) {
 }
 
 async function rejectAllAesthetic(solId) {
-  const motivo = prompt('Motivo del rechazo estético de todos los ítems:');
-  if (!motivo) return;
+  openRechazoMuestraModal(solId);
+}
+
+function openRechazoMuestraModal(solId) {
+  const m = document.createElement('div');
+  m.className = 'modal-overlay';
+  m.id = 'rechazoModal';
+  m.innerHTML = `<div class="modal" style="max-width:550px;">
+    <h2 style="color:var(--red);margin-bottom:12px;">Rechazo de muestras estéticas</h2>
+    <p style="color:var(--txt2);font-size:13px;margin-bottom:12px;">Describí el motivo del rechazo y adjuntá fotos si es necesario. La solicitud vuelve a Compras para gestionar con el proveedor.</p>
+
+    <div class="field">
+      <label>Motivo del rechazo</label>
+      <textarea id="rechazoMotivo" rows="4" placeholder="Describí detalladamente el motivo del rechazo..."></textarea>
+    </div>
+
+    <div class="field" style="margin-top:12px;">
+      <label>Fotos del rechazo (URLs de imágenes)</label>
+      <div id="rechazoFotos"></div>
+      <div style="display:flex;gap:6px;margin-top:4px;">
+        <input type="text" id="newRechazoFotoUrl" placeholder="URL de la imagen (Google Drive, Dropbox, etc.)" style="flex:1;">
+        <button class="btn-outline btn-sm" onclick="addRechazoFoto()">+ Foto</button>
+      </div>
+      <small style="color:var(--txt2);font-size:11px;">Subí las fotos a Drive o Dropbox y pegá el link acá</small>
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+      <button class="btn-outline" onclick="closeModal('rechazoModal')">Cancelar</button>
+      <button class="btn-red" onclick="submitRechazoMuestra('${solId}')">Confirmar rechazo → Vuelve a Compras</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+}
+
+function addRechazoFoto() {
+  const input = document.getElementById('newRechazoFotoUrl');
+  const url = input.value.trim();
+  if (!url) return;
+  const container = document.getElementById('rechazoFotos');
+  const tag = document.createElement('div');
+  tag.className = 'rechazo-foto-item';
+  tag.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:4px;background:var(--bg3);padding:6px 10px;border-radius:6px;font-size:12px;';
+  tag.innerHTML = `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;">📷 ${url.substring(0, 50)}${url.length > 50 ? '...' : ''}</span>
+    <input type="hidden" class="rechazo-foto-url" value="${url}">
+    <span onclick="this.parentElement.remove()" style="cursor:pointer;color:var(--red);font-weight:bold;">✕</span>`;
+  container.appendChild(tag);
+  input.value = '';
+}
+
+async function submitRechazoMuestra(solId) {
+  const motivo = document.getElementById('rechazoMotivo').value.trim();
+  if (!motivo) return toast('Escribí el motivo del rechazo', true);
+
+  const fotos = [];
+  document.querySelectorAll('.rechazo-foto-url').forEach(el => { if (el.value) fotos.push(el.value); });
+
   try {
+    // Update all items as rejected
     const { data: items } = await sb.from('solicitud_items').select('id, status_estetico').eq('solicitud_id', solId);
-    const pendientes = items?.filter(i => i.status_estetico === 'pendiente') || [];
+    const pendientes = items?.filter(i => i.status_estetico !== 'aprobado') || [];
     for (const it of pendientes) {
       await sb.from('solicitud_items').update({ status_estetico: 'rechazado', notas: motivo }).eq('id', it.id);
     }
-    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems rechazados estéticamente', detalle: motivo });
-    await loadSolicitudes();
-    await openSolicitud(solId);
-    toast('Todos los ítems rechazados');
+
+    const detalleRechazo = motivo + (fotos.length ? '\n\nFotos: ' + fotos.join(', ') : '');
+
+    await sb.from('historial').insert({
+      solicitud_id: solId, actor_id: currentUser.id,
+      evento: 'Muestras rechazadas estéticamente — Vuelve a Compras',
+      detalle: detalleRechazo
+    });
+
+    // Save fotos in notas
+    if (fotos.length) {
+      const s = solicitudes.find(x => x.id === solId);
+      const notasAct = s?.notas || '';
+      await sb.from('solicitudes').update({ notas: notasAct + `\n[RECHAZO FOTOS] ${fotos.join(' | ')}` }).eq('id', solId);
+    }
+
+    const s = solicitudes.find(x => x.id === solId);
+    closeModal('rechazoModal');
+
+    // Goes BACK to Pedido de muestras (Compras has to re-work with proveedor)
+    await updateStatus(solId, 'Pedido de muestras', 'Muestras rechazadas - Vuelve a Compras', motivo,
+      ['nmaggi@cdimex.com.ar','mjaimes@cdimex.com.ar','nguarino@cdimex.com.ar'].filter(Boolean),
+      `Solicitud #${s?.numero}: Muestras rechazadas`,
+      `<p>Las muestras de <strong>${s?.nombre}</strong> fueron rechazadas estéticamente.</p><p><strong>Motivo:</strong> ${motivo}</p>${fotos.length ? '<p>Se adjuntaron ' + fotos.length + ' foto(s) de referencia.</p>' : ''}<p>La solicitud vuelve a Compras para gestionar con el proveedor.</p>`);
   } catch (err) {
     console.error(err);
     toast('Error: ' + err.message, true);
   }
+}
+
+// Muestras técnicas tracking (reutiliza el mismo concepto de courier/tracking)
+async function despacharMuestrasTecnicas(id) {
+  const courier = document.getElementById('muestraTecCourier')?.value?.trim();
+  const tracking = document.getElementById('muestraTecTracking')?.value?.trim();
+  const despacho = document.getElementById('muestraTecDespacho')?.value;
+  const eta = document.getElementById('muestraTecETA')?.value;
+
+  if (!tracking) { toast('Ingresá el tracking number', true); return; }
+
+  const s = solicitudes.find(x => x.id === id);
+  const notasActuales = s.notas || '';
+  const notasTracking = `\n[TRACKING MUESTRAS TEC] Courier: ${courier || 'DHL'} | Tracking: ${tracking} | Despacho: ${despacho || 'N/A'}${eta ? ' | ETA: ' + eta : ''}`;
+  await sb.from('solicitudes').update({ notas: notasActuales + notasTracking }).eq('id', id);
+
+  await sb.from('historial').insert({
+    solicitud_id: id, actor_id: currentUser.id,
+    evento: 'Muestras técnicas despachadas',
+    detalle: `Courier: ${courier || 'DHL'} | Tracking: ${tracking}`
+  });
+
+  toast('Tracking de muestras técnicas guardado. Cuando lleguen, marcá "Muestras técnicas recibidas".');
+  await loadSolicitudes();
+  await openSolicitud(id);
 }
 
 async function techSamplesArrived(id) {
@@ -2025,6 +2425,27 @@ async function produccionFinalizada(id) {
     `<p>La producción de <strong>${sProd?.nombre}</strong> finalizó. Se inicia la inspección pre-embarque.</p>`);
 }
 
+async function rechazarInspeccion(id) {
+  const motivo = prompt('Motivo del rechazo de inspección:');
+  if (!motivo) return;
+  const s = solicitudes.find(x => x.id === id);
+
+  // Reset inspecciones to pendiente
+  await sb.from('inspecciones').update({ resultado: 'pendiente' }).eq('solicitud_id', id);
+
+  await sb.from('historial').insert({
+    solicitud_id: id, actor_id: currentUser.id,
+    evento: 'Inspección desaprobada — Vuelve a producción',
+    detalle: motivo
+  });
+
+  // Go back to "En producción" so the provider can fix and re-produce
+  await updateStatus(id, 'En producción', 'Inspección desaprobada - Vuelve a producción', motivo,
+    ['nguarino@cdimex.com.ar','mjaimes@cdimex.com.ar', s?.profiles?.email].filter(Boolean),
+    `Solicitud #${s?.numero}: Inspección desaprobada`,
+    `<p>La inspección pre-embarque de <strong>${s?.nombre}</strong> fue desaprobada.</p><p><strong>Motivo:</strong> ${motivo}</p><p>Vuelve a producción para correcciones.</p>`);
+}
+
 async function markShipped(id) {
   const eta = document.getElementById('etaInput')?.value;
   if (!eta) return toast('Ingresá la fecha estimada de arribo (ETA)', true);
@@ -2060,6 +2481,64 @@ async function markCompleted(id) {
     [s?.profiles?.email, 'nguarino@cdimex.com.ar'].filter(Boolean),
     `Solicitud #${s?.numero}: Completada`,
     `<p><strong>${s?.nombre}</strong> fue nacionalizada y recibida exitosamente.</p>`);
+}
+
+// =============================================
+// DISEÑO FINAL
+// =============================================
+async function addDisenoFinal(solId) {
+  const url = document.getElementById('newDisenoUrl')?.value?.trim();
+  if (!url) return toast('Pegá la URL del archivo', true);
+  const s = solicitudes.find(x => x.id === solId);
+  const notasAct = s?.notas || '';
+  await sb.from('solicitudes').update({ notas: notasAct + `\n[DISENO] ${url}` }).eq('id', solId);
+  await sb.from('historial').insert({
+    solicitud_id: solId, actor_id: currentUser.id,
+    evento: 'Diseño final adjuntado',
+    detalle: url
+  });
+  toast('Diseño adjuntado');
+  await loadSolicitudes();
+  await openSolicitud(solId);
+}
+
+// =============================================
+// ELIMINAR SOLICITUDES (borrado lógico)
+// =============================================
+async function eliminarSolicitud(id) {
+  if (!canDelete()) return toast('No tenés permisos para eliminar', true);
+  const s = solicitudes.find(x => x.id === id);
+  if (!confirm(`¿Eliminar la solicitud #${s?.numero} "${s?.nombre}"?\n\nLa solicitud pasará a estado "Eliminada" y no se mostrará en las listas activas.`)) return;
+
+  await sb.from('solicitudes').update({ status: 'Eliminada' }).eq('id', id);
+  await sb.from('historial').insert({
+    solicitud_id: id, actor_id: currentUser.id,
+    evento: 'Solicitud eliminada',
+    detalle: `Eliminada por ${currentProfile.full_name}`
+  });
+  await loadSolicitudes();
+  switchTab('dashboard');
+  toast('Solicitud eliminada');
+}
+
+async function eliminarMasivo() {
+  if (!canDelete()) return toast('No tenés permisos para eliminar', true);
+  const checkboxes = document.querySelectorAll('.sol-check:checked');
+  if (!checkboxes.length) return toast('Seleccioná al menos una solicitud', true);
+  const ids = Array.from(checkboxes).map(c => c.value);
+  if (!confirm(`¿Eliminar ${ids.length} solicitud(es)?\n\nPasarán a estado "Eliminada".`)) return;
+
+  for (const id of ids) {
+    await sb.from('solicitudes').update({ status: 'Eliminada' }).eq('id', id);
+    await sb.from('historial').insert({
+      solicitud_id: id, actor_id: currentUser.id,
+      evento: 'Solicitud eliminada (masivo)',
+      detalle: `Eliminada por ${currentProfile.full_name}`
+    });
+  }
+  await loadSolicitudes();
+  switchTab(currentTab);
+  toast(`${ids.length} solicitudes eliminadas`);
 }
 
 // =============================================
