@@ -1232,7 +1232,10 @@ function renderSolicitudDetail(c, data) {
     </div>
 
     <div class="section" style="margin-top:20px;">
-      <h3>Retroplan</h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3>Retroplan</h3>
+        ${(isCompras() || canApprove()) && s.status !== 'Completado' && s.status !== 'Rechazada' ? `<button class="btn-outline btn-sm" onclick="regenerarRetroplan('${s.id}','${s.tipo}','${s.fecha_lanzamiento}')">Regenerar retroplan</button>` : ''}
+      </div>
       <div class="retroplan-timeline" id="retroplanTimeline"></div>
     </div>
 
@@ -1840,6 +1843,46 @@ async function completePasoByName(solId, nombre) {
       completado: true, fecha_completado: new Date().toISOString().split('T')[0]
     }).eq('id', data.id);
   }
+}
+
+// =============================================
+// REGENERAR RETROPLAN
+// =============================================
+async function regenerarRetroplan(solId, tipo, fechaLanzamiento) {
+  if (!confirm('¿Regenerar el retroplan con el template actualizado?\n\nEsto eliminará todos los pasos actuales y creará los nuevos. Los pasos ya completados se perderán.')) return;
+
+  // Get cotización responsable for __COTIZ__ placeholder
+  const { data: sol } = await sb.from('solicitudes').select('cotizacion_responsable').eq('id', solId).single();
+  const cotiz = sol?.cotizacion_responsable || 'compras';
+
+  // Delete existing pasos
+  await sb.from('retroplan_pasos').delete().eq('solicitud_id', solId);
+
+  // Generate new pasos from current template
+  const template = RETROPLAN_TEMPLATES[tipo] || RETROPLAN_TEMPLATES['Nuevos desarrollos'];
+  const launchDate = new Date(fechaLanzamiento + 'T12:00:00');
+  const pasos = template.map((t, i) => {
+    const fecha = new Date(launchDate);
+    fecha.setDate(fecha.getDate() - t.dias);
+    let resp = t.responsable;
+    if (resp === '__COTIZ__') resp = cotiz;
+    return {
+      solicitud_id: solId, orden: i + 1, nombre: t.nombre,
+      responsable: resp, dias_offset: t.dias,
+      fecha_objetivo: fecha.toISOString().split('T')[0]
+    };
+  });
+
+  await sb.from('retroplan_pasos').insert(pasos);
+
+  // Log
+  await sb.from('historial').insert({
+    solicitud_id: solId, actor_id: currentUser.id,
+    evento: 'Retroplan regenerado', detalle: `Template: ${tipo}, ${template.length} pasos`
+  });
+
+  toast('Retroplan regenerado exitosamente');
+  await openSolicitud(solId);
 }
 
 // =============================================
