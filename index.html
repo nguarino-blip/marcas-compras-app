@@ -238,7 +238,22 @@ const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
 const MARCAS = ['Cher Fragancias','Cher Beauty','Bensimon','Fascino','Tucci','Sarkany',
-  'Margarita','Oreiro Love','L\'Inedito','Al Shams','Get the Look'];
+  'Margarita','Oreiro Love','L\'Inedito','Al Shams','Get the Look','K-beauty'];
+
+// Mapa de marcas asignadas por email (rol Marcas)
+const MARCAS_POR_USUARIO = {
+  'fbarrionuevo@cdimex.com.ar': ['Cher Fragancias'],                          // Florencia Barrionuevo
+  'amosquera@cdimex.com.ar':    ['Cher Beauty'],                              // Agustina Mosquera
+  'mkovacs@cdimex.com.ar':      ['Cher Fragancias','Cher Beauty'],            // Macarena Kovacs (BM Cher)
+  'cmanoleay@cdimex.com.ar':    ['Al Shams','L\'Inedito','Get the Look','Oreiro Love','Margarita'],  // Camila Manoleay
+  'nmourelle@cdimex.com.ar':    ['Al Shams','L\'Inedito','Get the Look','Oreiro Love','Margarita'],  // Nicole Mourelle
+  'rderiso@cdimex.com.ar':      ['Al Shams','L\'Inedito','Get the Look','Oreiro Love','Margarita'],  // Rosario del Riso (BM Masivas)
+  'vsolis@cdimex.com.ar':       ['Bensimon','Tucci'],                          // Valeria Solis
+  'canriquez@cdimex.com.ar':    ['Sarkany'],                                   // Carla Anriquez
+  'icortina@cdimex.com.mx':     ['Bensimon','Sarkany','Tucci'],               // Ignacio Cortina (BM)
+  'glaffitte@cdimex.com.ar':    ['K-beauty'],                                  // Geraldine Laffitte
+  'fcortassa@cdimex.com.ar':    '__ALL__'                                      // Franco Cortassa (Director General)
+};
 
 const STATUS_LIST = [
   'Pendiente aprobación Compras','Info solicitada','Propuesta de proveedores',
@@ -527,9 +542,26 @@ function isCalidad() {
   return currentProfile?.sub_roles?.includes('calidad');
 }
 function canDelete() {
-  // Only Nicolás Guarino and Mariángeles Jaimes can delete
   const email = currentProfile?.email?.toLowerCase();
   return email === 'nguarino@cdimex.com.ar' || email === 'mjaimes@cdimex.com.ar' || canApprove();
+}
+function canActOnBrand(marca) {
+  // Compras, Comex, Calidad, Admin → can act on any brand
+  if (!isMarcas()) return true;
+  // can_approve (admin) → can act on any brand
+  if (canApprove()) return true;
+  const email = currentProfile?.email?.toLowerCase();
+  const assigned = MARCAS_POR_USUARIO[email];
+  if (!assigned) return false; // email not in map → no access
+  if (assigned === '__ALL__') return true; // Director General
+  return assigned.includes(marca);
+}
+function getMisMarcas() {
+  const email = currentProfile?.email?.toLowerCase();
+  const assigned = MARCAS_POR_USUARIO[email];
+  if (!assigned) return [];
+  if (assigned === '__ALL__') return MARCAS;
+  return assigned;
 }
 
 // =============================================
@@ -582,7 +614,7 @@ function renderDashboard(c) {
   const activas = solicitudes.filter(s => !['Completado','Rechazada','Eliminada'].includes(s.status));
   const pending = solicitudes.filter(s => s.status === 'Pendiente aprobación Compras');
   const myPending = solicitudes.filter(s => {
-    if (isMarcas()) return s.status.includes('Marcas') && s.created_by === currentUser.id;
+    if (isMarcas()) return s.status.includes('Marcas') && canActOnBrand(s.marca);
     if (isCalidad()) return s.status.includes('Calidad') || s.status.includes('Inspección');
     if (isComex()) return ['Comex - Proforma y pago','Orden de producción','Booking shipping','En tránsito','Nacionalización'].includes(s.status);
     if (isCompras()) return ['Pendiente aprobación Compras','Propuesta de proveedores','Cotización y negociación','Pedido de muestras','Muestras en tránsito','Esperando muestras técnicas','Aprobada - Lista para OC','OC emitida','En producción'].includes(s.status);
@@ -737,7 +769,7 @@ function showDashboardList(type) {
     title = 'Pendientes de aprobación';
   } else if (type === 'myPending') {
     list = solicitudes.filter(s => {
-      if (isMarcas()) return s.status.includes('Marcas') && s.created_by === currentUser.id;
+      if (isMarcas()) return s.status.includes('Marcas') && canActOnBrand(s.marca);
       if (isCalidad()) return s.status.includes('Calidad') || s.status.includes('Inspección');
       if (isComex()) return ['Comex - Proforma y pago','Orden de producción','Booking shipping','En tránsito','Nacionalización'].includes(s.status);
       if (isCompras()) return ['Pendiente aprobación Compras','Propuesta de proveedores','Cotización y negociación','Pedido de muestras','Muestras en tránsito','Esperando muestras técnicas','Aprobada - Lista para OC','OC emitida','En producción'].includes(s.status);
@@ -883,7 +915,7 @@ function openNewSolicitud(preselectedTipo) {
       <div class="field">
         <label>Marca</label>
         <select id="nsMarca" onchange="toggleOtraMarca()">
-          ${MARCAS.map(m => `<option>${m}</option>`).join('')}
+          ${(isMarcas() && !canApprove() ? getMisMarcas() : MARCAS).map(m => `<option>${m}</option>`).join('')}
           <option value="__otra__">Otra...</option>
         </select>
       </div>
@@ -1623,7 +1655,7 @@ function renderSolicitudDetail(c, data) {
     <div class="section" style="margin-top:20px;">
       <h3>Diseño final / Archivos</h3>
       <div id="disenoFinalSection" style="margin-bottom:8px;"></div>
-      ${['Esperando muestras técnicas','Pendiente aprobación Calidad','Pendiente aprobación estética (Marcas)'].includes(s.status) || (isCompras() || isMarcas() || canApprove()) ? `
+      ${['Esperando muestras técnicas','Pendiente aprobación Calidad','Pendiente aprobación estética (Marcas)'].includes(s.status) || (isCompras() || (isMarcas() && canActOnBrand(s.marca)) || canApprove()) ? `
         <div style="display:flex;gap:6px;margin-top:8px;">
           <input type="text" id="newDisenoUrl" placeholder="URL del archivo (Google Drive, Dropbox, etc.)" style="flex:1;">
           <button class="btn-outline btn-sm" onclick="addDisenoFinal('${s.id}')">+ Adjuntar diseño</button>
@@ -1762,10 +1794,12 @@ function renderActionBar(s, data) {
       break;
     }
     case 'Pendiente aprobación estética (Marcas)':
-      if (isMarcas() || canApprove()) {
+      if ((isMarcas() && canActOnBrand(s.marca)) || canApprove()) {
         html += `<p style="color:var(--txt2);font-size:13px;">Aprobá cada ítem individualmente en la sección de Items, o usá el botón para aprobar todos.</p>`;
         html += `<button class="btn-green" onclick="approveAllAesthetic('${sid}')">Aprobar todos los ítems</button>`;
         html += `<button class="btn-red" onclick="openRechazoMuestraModal('${sid}')">Rechazar muestras (con fotos)</button>`;
+      } else if (isMarcas()) {
+        html += `<p style="color:var(--txt2);font-size:13px;">Esta solicitud pertenece a la marca <strong>${s.marca}</strong>, que no está asignada a tu usuario.</p>`;
       }
       break;
     case 'Esperando muestras técnicas':
@@ -1870,7 +1904,7 @@ function renderItems(items, s) {
   const el = document.getElementById('itemsSection');
   if (!items.length) { el.innerHTML = '<p style="color:var(--txt2)">Sin ítems</p>'; return; }
 
-  const showAestheticApproval = s.status === 'Pendiente aprobación estética (Marcas)' && (isMarcas() || canApprove());
+  const showAestheticApproval = s.status === 'Pendiente aprobación estética (Marcas)' && ((isMarcas() && canActOnBrand(s.marca)) || canApprove());
 
   el.innerHTML = `<table class="items-table">
     <tr>
@@ -1909,7 +1943,7 @@ function renderInspecciones(inspecciones, s) {
   const el = document.getElementById('inspeccionesSection');
   const tipos = [
     { key: 'calidad_funcional', label: 'Calidad - Funcionalidad', canApproveRole: () => isCalidad() || canApprove() },
-    { key: 'estetica_marcas', label: 'Marcas - Estética', canApproveRole: () => isMarcas() || canApprove() },
+    { key: 'estetica_marcas', label: 'Marcas - Estética', canApproveRole: () => (isMarcas() && canActOnBrand(s.marca)) || canApprove() },
     { key: 'comex_packing', label: 'Comex - Packing List & Shipping Marks', canApproveRole: () => isComex() || canApprove() }
   ];
 
