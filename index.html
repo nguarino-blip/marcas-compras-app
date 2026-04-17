@@ -217,8 +217,10 @@ const STATUS_LIST = [
   'Pendiente aprobación Compras','Info solicitada','En búsqueda de proveedores',
   'Retroplan propuesto','Esperando muestras estéticas','Pendiente aprobación estética (Marcas)',
   'Esperando muestras técnicas','Pendiente aprobación Calidad',
-  'Inspección pre-embarque','Aprobada - Lista para OC','OC emitida',
-  'Comex - Pago y seguimiento','En tránsito','Completado','Rechazada'
+  'Aprobada - Lista para OC','OC emitida',
+  'Comex - Proforma y pago','Orden de producción','En producción',
+  'Inspección pre-embarque','Booking shipping',
+  'En tránsito','Nacionalización','Completado','Rechazada'
 ];
 
 const STATUS_PILL_CLASS = {
@@ -226,71 +228,88 @@ const STATUS_PILL_CLASS = {
   'En búsqueda de proveedores':'pill-active','Retroplan propuesto':'pill-active',
   'Esperando muestras estéticas':'pill-active','Pendiente aprobación estética (Marcas)':'pill-marcas',
   'Esperando muestras técnicas':'pill-active','Pendiente aprobación Calidad':'pill-calidad',
-  'Inspección pre-embarque':'pill-calidad','Aprobada - Lista para OC':'pill-approved',
-  'OC emitida':'pill-approved','Comex - Pago y seguimiento':'pill-comex',
-  'En tránsito':'pill-comex','Completado':'pill-approved','Rechazada':'pill-rejected'
+  'Aprobada - Lista para OC':'pill-approved','OC emitida':'pill-approved',
+  'Comex - Proforma y pago':'pill-comex','Orden de producción':'pill-comex',
+  'En producción':'pill-active','Inspección pre-embarque':'pill-calidad',
+  'Booking shipping':'pill-comex','En tránsito':'pill-comex',
+  'Nacionalización':'pill-comex','Completado':'pill-approved','Rechazada':'pill-rejected'
 };
 
 const PROD_DAYS = {'Frasco vidrio':48,'Frasco plástico':40,'Estuche':35,'Insumo':30,'GWP':30,'Otro':45};
 
 const RETROPLAN_TEMPLATES = {
   'Nuevos desarrollos': [
-    {nombre:'Sell-in',dias:180,responsable:'marcas'},
-    {nombre:'Brief / Solicitud',dias:170,responsable:'marcas'},
-    {nombre:'Aprobación Compras',dias:165,responsable:'compras'},
-    {nombre:'Búsqueda Shortlist proveedores',dias:160,responsable:'compras'},
-    {nombre:'Cotización y negociación',dias:150,responsable:'__COTIZ__'},
-    {nombre:'Muestras estéticas',dias:135,responsable:'compras'},
-    {nombre:'Aprobación estética (Marcas)',dias:125,responsable:'marcas'},
-    {nombre:'Muestras técnicas',dias:115,responsable:'compras'},
-    {nombre:'Aprobación Calidad',dias:105,responsable:'calidad'},
-    {nombre:'Inspección pre-embarque',dias:95,responsable:'calidad'},
-    {nombre:'OC y pago',dias:85,responsable:'compras'},
-    {nombre:'Producción',dias:80,responsable:'compras'},
-    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
+    {nombre:'Sell-in',dias:270,responsable:'marcas'},
+    {nombre:'Brief / Solicitud',dias:260,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:255,responsable:'compras'},
+    {nombre:'Búsqueda Shortlist proveedores',dias:250,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:240,responsable:'__COTIZ__'},
+    {nombre:'Muestras estéticas',dias:220,responsable:'compras'},
+    {nombre:'Aprobación estética (Marcas)',dias:210,responsable:'marcas'},
+    {nombre:'Muestras técnicas',dias:200,responsable:'compras'},
+    {nombre:'Aprobación Calidad',dias:190,responsable:'calidad'},
+    {nombre:'Emisión OC',dias:185,responsable:'compras'},
+    {nombre:'Proforma invoice y pago',dias:180,responsable:'comex'},
+    {nombre:'Orden de producción',dias:175,responsable:'comex'},
+    {nombre:'Producción',dias:170,responsable:'compras'},
+    {nombre:'Inspección pre-embarque',dias:50,responsable:'calidad'},
+    {nombre:'Booking shipping',dias:45,responsable:'comex'},
+    {nombre:'Shipping / Tránsito',dias:40,responsable:'comex'},
+    {nombre:'Nacionalización',dias:5,responsable:'comex'},
     {nombre:'Recepción',dias:0,responsable:'compras'}
   ],
   'Cambio de proveedor': [
-    {nombre:'Sell-in',dias:150,responsable:'marcas'},
-    {nombre:'Brief / Solicitud',dias:140,responsable:'marcas'},
-    {nombre:'Aprobación Compras',dias:135,responsable:'compras'},
-    {nombre:'Búsqueda Shortlist proveedores',dias:130,responsable:'compras'},
-    {nombre:'Cotización y negociación',dias:120,responsable:'__COTIZ__'},
-    {nombre:'Muestras estéticas',dias:105,responsable:'compras'},
-    {nombre:'Aprobación estética (Marcas)',dias:95,responsable:'marcas'},
-    {nombre:'Muestras técnicas',dias:85,responsable:'compras'},
-    {nombre:'Aprobación Calidad',dias:75,responsable:'calidad'},
-    {nombre:'Inspección pre-embarque',dias:65,responsable:'calidad'},
-    {nombre:'OC y pago',dias:55,responsable:'compras'},
-    {nombre:'Producción',dias:50,responsable:'compras'},
-    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
+    {nombre:'Sell-in',dias:240,responsable:'marcas'},
+    {nombre:'Brief / Solicitud',dias:230,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:225,responsable:'compras'},
+    {nombre:'Búsqueda Shortlist proveedores',dias:220,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:210,responsable:'__COTIZ__'},
+    {nombre:'Muestras estéticas',dias:195,responsable:'compras'},
+    {nombre:'Aprobación estética (Marcas)',dias:185,responsable:'marcas'},
+    {nombre:'Muestras técnicas',dias:175,responsable:'compras'},
+    {nombre:'Aprobación Calidad',dias:165,responsable:'calidad'},
+    {nombre:'Emisión OC',dias:160,responsable:'compras'},
+    {nombre:'Proforma invoice y pago',dias:155,responsable:'comex'},
+    {nombre:'Orden de producción',dias:150,responsable:'comex'},
+    {nombre:'Producción',dias:145,responsable:'compras'},
+    {nombre:'Inspección pre-embarque',dias:50,responsable:'calidad'},
+    {nombre:'Booking shipping',dias:45,responsable:'comex'},
+    {nombre:'Shipping / Tránsito',dias:40,responsable:'comex'},
+    {nombre:'Nacionalización',dias:5,responsable:'comex'},
     {nombre:'Recepción',dias:0,responsable:'compras'}
   ],
   'Traspaso compra local al exterior': [
-    {nombre:'Sell-in',dias:140,responsable:'marcas'},
-    {nombre:'Brief / Solicitud',dias:130,responsable:'marcas'},
-    {nombre:'Aprobación Compras',dias:125,responsable:'compras'},
-    {nombre:'Búsqueda Shortlist proveedores',dias:120,responsable:'compras'},
-    {nombre:'Cotización y negociación',dias:110,responsable:'__COTIZ__'},
-    {nombre:'Muestras estéticas',dias:95,responsable:'compras'},
-    {nombre:'Aprobación estética (Marcas)',dias:85,responsable:'marcas'},
-    {nombre:'Muestras técnicas',dias:75,responsable:'compras'},
-    {nombre:'Aprobación Calidad',dias:65,responsable:'calidad'},
-    {nombre:'Inspección pre-embarque',dias:55,responsable:'calidad'},
-    {nombre:'OC y pago',dias:45,responsable:'compras'},
-    {nombre:'Producción',dias:40,responsable:'compras'},
-    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
+    {nombre:'Sell-in',dias:230,responsable:'marcas'},
+    {nombre:'Brief / Solicitud',dias:220,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:215,responsable:'compras'},
+    {nombre:'Búsqueda Shortlist proveedores',dias:210,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:200,responsable:'__COTIZ__'},
+    {nombre:'Muestras estéticas',dias:185,responsable:'compras'},
+    {nombre:'Aprobación estética (Marcas)',dias:175,responsable:'marcas'},
+    {nombre:'Muestras técnicas',dias:165,responsable:'compras'},
+    {nombre:'Aprobación Calidad',dias:155,responsable:'calidad'},
+    {nombre:'Emisión OC',dias:150,responsable:'compras'},
+    {nombre:'Proforma invoice y pago',dias:145,responsable:'comex'},
+    {nombre:'Orden de producción',dias:140,responsable:'comex'},
+    {nombre:'Producción',dias:135,responsable:'compras'},
+    {nombre:'Inspección pre-embarque',dias:50,responsable:'calidad'},
+    {nombre:'Booking shipping',dias:45,responsable:'comex'},
+    {nombre:'Shipping / Tránsito',dias:40,responsable:'comex'},
+    {nombre:'Nacionalización',dias:5,responsable:'comex'},
     {nombre:'Recepción',dias:0,responsable:'compras'}
   ],
   'Compras regulares': [
-    {nombre:'Sell-in',dias:120,responsable:'marcas'},
-    {nombre:'Brief / Solicitud',dias:110,responsable:'marcas'},
-    {nombre:'Aprobación Compras',dias:105,responsable:'compras'},
-    {nombre:'Cotización y negociación',dias:95,responsable:'__COTIZ__'},
-    {nombre:'Inspección pre-embarque',dias:65,responsable:'calidad'},
-    {nombre:'OC y pago',dias:55,responsable:'compras'},
-    {nombre:'Producción',dias:50,responsable:'compras'},
-    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
+    {nombre:'Brief / Solicitud',dias:200,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:195,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:185,responsable:'__COTIZ__'},
+    {nombre:'Emisión OC',dias:175,responsable:'compras'},
+    {nombre:'Proforma invoice y pago',dias:170,responsable:'comex'},
+    {nombre:'Orden de producción',dias:165,responsable:'comex'},
+    {nombre:'Producción',dias:160,responsable:'compras'},
+    {nombre:'Inspección pre-embarque',dias:50,responsable:'calidad'},
+    {nombre:'Booking shipping',dias:45,responsable:'comex'},
+    {nombre:'Shipping / Tránsito',dias:40,responsable:'comex'},
+    {nombre:'Nacionalización',dias:5,responsable:'comex'},
     {nombre:'Recepción',dias:0,responsable:'compras'}
   ]
 };
@@ -1228,7 +1247,7 @@ function renderSolicitudDetail(c, data) {
       </div>
     </div>
 
-    ${s.status === 'Comex - Pago y seguimiento' || s.status === 'En tránsito' || data.comex ? `
+    ${['Comex - Proforma y pago','Orden de producción','En producción','Inspección pre-embarque','Booking shipping','En tránsito','Nacionalización','Completado'].includes(s.status) || data.comex ? `
     <div class="section">
       <h3>Seguimiento Comex</h3>
       <div id="comexSection"></div>
@@ -1308,32 +1327,56 @@ function renderActionBar(s, data) {
       }
       break;
     case 'Pendiente aprobación Calidad':
-      if (isCalidad()) {
+      if (isCalidad() || canApprove()) {
         html += `<button class="btn-green" onclick="calidadApprove('${sid}')">Calidad: Aprobar</button>`;
         html += `<button class="btn-red" onclick="calidadReject('${sid}')">Calidad: Rechazar</button>`;
+      }
+      break;
+    case 'Aprobada - Lista para OC':
+      if (isCompras() || canApprove()) {
+        html += `<button class="btn-green" onclick="emitOC('${sid}')">Emitir OC (Mariángeles)</button>`;
+      }
+      break;
+    case 'OC emitida':
+      if (isComex() || canApprove()) {
+        html += `<button class="btn-blue" onclick="comexTakeOver('${sid}')">Comex: Proforma y pago</button>`;
+      }
+      break;
+    case 'Comex - Proforma y pago':
+      if (isComex() || canApprove()) {
+        html += `<button class="btn-blue" onclick="comexOrdenProduccion('${sid}')">Dar orden de producción</button>`;
+      }
+      break;
+    case 'Orden de producción':
+      if (isCompras() || canApprove()) {
+        html += `<button class="btn-gold" onclick="markEnProduccion('${sid}')">Marcar en producción</button>`;
+      }
+      break;
+    case 'En producción':
+      if (isCompras() || isCalidad() || canApprove()) {
+        html += `<button class="btn-gold" onclick="produccionFinalizada('${sid}')">Producción finalizada → Inspección</button>`;
       }
       break;
     case 'Inspección pre-embarque':
       html += `<p style="color:var(--txt2);font-size:13px;">Las inspecciones se aprueban individualmente abajo.</p>`;
       break;
-    case 'Aprobada - Lista para OC':
-      if (isCompras()) {
-        html += `<button class="btn-green" onclick="emitOC('${sid}')">Emitir OC</button>`;
-      }
-      break;
-    case 'OC emitida':
-      if (isComex()) {
-        html += `<button class="btn-blue" onclick="comexTakeOver('${sid}')">Comex: Tomar seguimiento</button>`;
-      }
-      break;
-    case 'Comex - Pago y seguimiento':
-      if (isComex()) {
-        html += `<button class="btn-blue" onclick="markInTransit('${sid}')">Marcar en tránsito</button>`;
+    case 'Booking shipping':
+      if (isComex() || canApprove()) {
+        html += `<div class="field" style="margin-bottom:8px;">
+          <label style="font-size:12px;">Fecha estimada de arribo (ETA)</label>
+          <input type="date" id="etaInput" style="max-width:200px;">
+        </div>`;
+        html += `<button class="btn-blue" onclick="markShipped('${sid}')">Confirmar embarque → En tránsito</button>`;
       }
       break;
     case 'En tránsito':
-      if (isComex() || isCompras()) {
-        html += `<button class="btn-green" onclick="markCompleted('${sid}')">Marcar completado</button>`;
+      if (isComex() || canApprove()) {
+        html += `<button class="btn-blue" onclick="markNacionalizacion('${sid}')">Arribo → Nacionalización</button>`;
+      }
+      break;
+    case 'Nacionalización':
+      if (isComex() || isCompras() || canApprove()) {
+        html += `<button class="btn-green" onclick="markCompleted('${sid}')">Nacionalizado → Completado</button>`;
       }
       break;
   }
@@ -1437,15 +1480,17 @@ function renderInspecciones(inspecciones, s) {
 function renderComexDetail(comex, s) {
   const el = document.getElementById('comexSection');
   if (!el) return;
+  const eta = comex.documentacion?.eta;
   el.innerHTML = `<div class="card">
     <div class="meta">OP: <strong>${comex.op_numero || 'Sin asignar'}</strong>
-      ${isComex() ? `<button class="btn-outline btn-sm" onclick="editComexOP('${comex.id}')" style="margin-left:8px;">Editar</button>` : ''}
+      ${(isComex() || canApprove()) ? `<button class="btn-outline btn-sm" onclick="editComexOP('${comex.id}')" style="margin-left:8px;">Editar</button>` : ''}
     </div>
     <div class="meta">Pago exterior: <strong>${comex.pago_exterior_status}</strong></div>
     <div class="meta">Packing list: ${comex.packing_list_ok ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--red)">✗</span>'}
       Shipping marks: ${comex.shipping_marks_ok ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--red)">✗</span>'}</div>
+    ${eta ? `<div class="meta">ETA (fecha estimada arribo): <strong style="color:var(--gold);">${fmtDate(eta)}</strong></div>` : ''}
     ${comex.notas ? `<div class="meta">Notas: ${comex.notas}</div>` : ''}
-    ${isComex() ? `<button class="btn-blue btn-sm" onclick="editComex('${comex.id}')" style="margin-top:8px;">Editar seguimiento</button>` : ''}
+    ${(isComex() || canApprove()) ? `<button class="btn-blue btn-sm" onclick="editComex('${comex.id}')" style="margin-top:8px;">Editar seguimiento</button>` : ''}
   </div>`;
 }
 
@@ -1627,13 +1672,12 @@ async function techSamplesArrived(id) {
 }
 
 async function calidadApprove(id) {
-  // Create inspection records
-  await sb.from('inspecciones').insert([
-    { solicitud_id: id, tipo: 'calidad_funcional', resultado: 'pendiente' },
-    { solicitud_id: id, tipo: 'estetica_marcas', resultado: 'pendiente' },
-    { solicitud_id: id, tipo: 'comex_packing', resultado: 'pendiente' }
-  ]);
-  await updateStatus(id, 'Inspección pre-embarque', 'Calidad aprobó - Inspección pre-embarque iniciada', null);
+  await completePasoByName(id, 'Aprobación Calidad');
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Aprobada - Lista para OC', 'Calidad aprobó - Lista para emisión de OC', null,
+    ['mjaimes@cdimex.com.ar','nguarino@cdimex.com.ar'],
+    `Solicitud #${s?.numero}: Calidad aprobó - Emitir OC`,
+    `<p>Las muestras técnicas de <strong>${s?.nombre}</strong> fueron aprobadas por Calidad. Mariángeles debe emitir la OC.</p>`);
 }
 
 async function calidadReject(id) {
@@ -1659,8 +1703,8 @@ async function approveInspeccion(solId, tipo) {
   const { data: allInsp } = await sb.from('inspecciones').select('resultado').eq('solicitud_id', solId);
   const allOk = allInsp?.every(i => i.resultado === 'aprobado');
   if (allOk) {
-    await sb.from('solicitudes').update({ status: 'Aprobada - Lista para OC' }).eq('id', solId);
-    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todas las inspecciones aprobadas - Lista para OC' });
+    await sb.from('solicitudes').update({ status: 'Booking shipping' }).eq('id', solId);
+    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todas las inspecciones aprobadas - Booking shipping' });
   }
   await loadSolicitudes();
   await openSolicitud(solId);
@@ -1683,18 +1727,21 @@ async function rejectInspeccion(solId, tipo) {
 
 async function emitOC(id) {
   const s = solicitudes.find(x => x.id === id);
-  // Mark retroplan step completed
-  await completePasoByName(id, 'OC y pago');
-  await updateStatus(id, 'OC emitida', 'OC emitida', null,
+  await completePasoByName(id, 'Emisión OC');
+  await updateStatus(id, 'OC emitida', 'OC emitida por Mariángeles', null,
     ['lruiz@cdimex.com.ar','nroldan@cdimex.com.ar'],
-    `Solicitud #${s.numero}: OC emitida - Comex tomar seguimiento`,
-    `<p>Se emitió la OC para <strong>${s.nombre}</strong>. Comex debe tomar el seguimiento.</p>`);
+    `Solicitud #${s?.numero}: OC emitida - Comex gestionar proforma y pago`,
+    `<p>Se emitió la OC para <strong>${s?.nombre}</strong>. Comex debe gestionar la proforma invoice y el pago.</p>`);
 }
 
 async function comexTakeOver(id) {
   // Create comex tracking record
-  await sb.from('comex_seguimiento').insert({ solicitud_id: id });
-  await updateStatus(id, 'Comex - Pago y seguimiento', 'Comex tomó seguimiento', null);
+  const { data: existing } = await sb.from('comex_seguimiento').select('id').eq('solicitud_id', id).single();
+  if (!existing) {
+    await sb.from('comex_seguimiento').insert({ solicitud_id: id });
+  }
+  await completePasoByName(id, 'Proforma invoice y pago');
+  await updateStatus(id, 'Comex - Proforma y pago', 'Comex gestionando proforma y pago', null);
 
   // Sync to Google Sheets
   const s = solicitudes.find(x => x.id === id);
@@ -1707,21 +1754,72 @@ async function comexTakeOver(id) {
         data: {
           numero: s?.numero, nombre: s?.nombre, marca: s?.marca, tipo: s?.tipo,
           fecha_oc: new Date().toISOString().split('T')[0],
-          pago_status: 'pendiente', estado: 'Comex - Pago y seguimiento'
+          pago_status: 'pendiente', estado: 'Comex - Proforma y pago'
         }
       })
     });
   } catch (e) { console.warn('Sheets sync error:', e); }
 }
 
-async function markInTransit(id) {
-  await completePasoByName(id, 'Shipping + Aduana');
-  await updateStatus(id, 'En tránsito', 'Marcado en tránsito', null);
+async function comexOrdenProduccion(id) {
+  await completePasoByName(id, 'Orden de producción');
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Orden de producción', 'Comex dio orden de producción', null,
+    ['nguarino@cdimex.com.ar','mjaimes@cdimex.com.ar'],
+    `Solicitud #${s?.numero}: Orden de producción emitida`,
+    `<p>Se emitió la orden de producción para <strong>${s?.nombre}</strong>.</p>`);
+}
+
+async function markEnProduccion(id) {
+  await completePasoByName(id, 'Producción');
+  await updateStatus(id, 'En producción', 'Producción iniciada', null);
+}
+
+async function produccionFinalizada(id) {
+  // Create inspection records when production finishes
+  const { data: existingInsp } = await sb.from('inspecciones').select('id').eq('solicitud_id', id);
+  if (!existingInsp?.length) {
+    await sb.from('inspecciones').insert([
+      { solicitud_id: id, tipo: 'calidad_funcional', resultado: 'pendiente' },
+      { solicitud_id: id, tipo: 'estetica_marcas', resultado: 'pendiente' },
+      { solicitud_id: id, tipo: 'comex_packing', resultado: 'pendiente' }
+    ]);
+  }
+  await completePasoByName(id, 'Inspección pre-embarque');
+  await updateStatus(id, 'Inspección pre-embarque', 'Producción finalizada - Inspección pre-embarque iniciada', null);
+}
+
+async function markShipped(id) {
+  const eta = document.getElementById('etaInput')?.value;
+  if (!eta) return toast('Ingresá la fecha estimada de arribo (ETA)', true);
+
+  // Save ETA in comex notes
+  await sb.from('comex_seguimiento').update({
+    notas: `ETA: ${eta}`,
+    documentacion: { eta }
+  }).eq('solicitud_id', id);
+
+  await completePasoByName(id, 'Booking shipping');
+  await completePasoByName(id, 'Shipping / Tránsito');
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'En tránsito', `Embarcado - ETA: ${eta}`, null,
+    ['nguarino@cdimex.com.ar','lruiz@cdimex.com.ar'],
+    `Solicitud #${s?.numero}: En tránsito - ETA ${eta}`,
+    `<p><strong>${s?.nombre}</strong> fue embarcada. Fecha estimada de arribo: ${eta}</p>`);
+}
+
+async function markNacionalizacion(id) {
+  await completePasoByName(id, 'Nacionalización');
+  await updateStatus(id, 'Nacionalización', 'Mercadería arribó - En nacionalización', null);
 }
 
 async function markCompleted(id) {
   await completePasoByName(id, 'Recepción');
-  await updateStatus(id, 'Completado', 'Solicitud completada', null);
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Completado', 'Solicitud completada - Nacionalizado y recibido', null,
+    [s?.profiles?.email, 'nguarino@cdimex.com.ar'].filter(Boolean),
+    `Solicitud #${s?.numero}: Completada`,
+    `<p><strong>${s?.nombre}</strong> fue nacionalizada y recibida exitosamente.</p>`);
 }
 
 // =============================================
