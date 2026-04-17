@@ -694,7 +694,7 @@ function openNewSolicitud(preselectedTipo) {
         </div>
 
         <div style="margin-top:10px;">
-          <label style="font-size:13px;color:var(--txt2);display:block;margin-bottom:6px;">Forecast próximos 3 meses del PT (unidades)</label>
+          <label style="font-size:13px;color:var(--txt2);display:block;margin-bottom:6px;">Forecast próximos 3 meses del PT (unidades vendidas)</label>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
             <div class="field">
               <label style="font-size:11px;">Mes 1</label>
@@ -713,17 +713,18 @@ function openNewSolicitud(preselectedTipo) {
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
           <div class="field">
-            <label>Fecha de producción prevista</label>
-            <input type="date" id="nsFechaProdPrevista">
-          </div>
-          <div class="field">
-            <label>Consumo de insumo por PT (unidades)</label>
+            <label>Consumo de insumo por cada PT</label>
             <input type="number" id="nsConsumoXPT" placeholder="Ej: 1" value="1" step="0.01">
             <small style="color:var(--txt2);font-size:11px;">Cuántas unidades de insumo se usan por cada PT</small>
           </div>
+          <div class="field">
+            <label>Lead time del insumo (días)</label>
+            <input type="number" id="nsLeadTime" placeholder="Ej: 150" value="150">
+            <small style="color:var(--txt2);font-size:11px;">Días desde OC hasta recepción del insumo</small>
+          </div>
         </div>
 
-        <button class="btn-gold" onclick="calcularAnalisisRegular()" style="margin-top:12px;width:100%;">Calcular fecha de compra y cantidad</button>
+        <button class="btn-gold" onclick="calcularAnalisisRegular()" style="margin-top:12px;width:100%;">Calcular cobertura, fecha de OC y cantidad</button>
 
         <div id="resultadoAnalisis" class="hidden" style="margin-top:14px;background:var(--bg2);border-radius:8px;padding:14px;border:1px solid var(--gold);">
         </div>
@@ -807,76 +808,109 @@ function calcularAnalisisRegular() {
   const fcstM1 = parseFloat(document.getElementById('nsFcstM1').value) || 0;
   const fcstM2 = parseFloat(document.getElementById('nsFcstM2').value) || 0;
   const fcstM3 = parseFloat(document.getElementById('nsFcstM3').value) || 0;
-  const fechaProd = document.getElementById('nsFechaProdPrevista').value;
   const consumoXPT = parseFloat(document.getElementById('nsConsumoXPT').value) || 1;
+  const leadTime = parseInt(document.getElementById('nsLeadTime').value) || 150;
 
   const fcstTotal3m = fcstM1 + fcstM2 + fcstM3;
   const fcstMensualProm = fcstTotal3m / 3;
 
   if (!fcstMensualProm) return toast('Completá el forecast de al menos un mes', true);
-  if (!fechaProd) return toast('Ingresá la fecha de producción prevista', true);
 
-  // ---- Análisis de PT ----
-  const diasStockPT = Math.round((stockPT / fcstMensualProm) * 30);
-  // Target: 60 días de stock de PT
-  const ptNecesarioTarget = Math.ceil((fcstMensualProm / 30) * 60);
-  const ptAProducir = Math.max(0, ptNecesarioTarget - stockPT + fcstTotal3m);
+  // ---- Demanda diaria de PT ----
+  const demandaDiariaPT = fcstMensualProm / 30;
 
-  // ---- Análisis de Insumo ----
-  // Consumo de insumo en base a PT a producir
-  const insumoParaProduccion = Math.ceil(ptAProducir * consumoXPT);
-  const consumoInsumoDiario = (fcstMensualProm * consumoXPT) / 30;
-  const diasStockInsumo = consumoInsumoDiario > 0 ? Math.round(stockInsumo / consumoInsumoDiario) : 999;
+  // ---- Cobertura total ----
+  // El stock de insumo se va a convertir en PT (insumo / consumoXPT = PT producibles)
+  const ptProduciblesConInsumo = stockInsumo / consumoXPT;
+  const stockTotalEnPT = stockPT + ptProduciblesConInsumo;
+  const coberturaTotal = Math.round(stockTotalEnPT / demandaDiariaPT);
 
-  // Target: 90 días de stock de insumo
-  const insumoTarget90d = Math.ceil(consumoInsumoDiario * 90);
-  const cantidadCompra = Math.max(0, insumoParaProduccion + insumoTarget90d - stockInsumo);
+  // Cobertura solo de PT actual (sin considerar insumo)
+  const coberturaPT = Math.round(stockPT / demandaDiariaPT);
+  // Cobertura solo del insumo (en días de demanda de PT)
+  const coberturaInsumo = Math.round(ptProduciblesConInsumo / demandaDiariaPT);
 
-  // ---- Fecha de compra ----
-  // La compra debe llegar antes de que el stock de insumo baje del mínimo para producción
-  // Consideramos lead time: el insumo debe estar antes de fecha de producción
-  const fechaProdDate = new Date(fechaProd + 'T12:00:00');
-  // Restar ~90 días (margen de seguridad logístico) o cuando queden 90 días de stock
-  const diasHastaQuiebre = Math.max(0, diasStockInsumo - 90);
-  const fechaCompraDesdeStock = new Date();
-  fechaCompraDesdeStock.setDate(fechaCompraDesdeStock.getDate() + diasHastaQuiebre);
-  // La fecha de compra es la más próxima: por stock o por producción
-  const fechaCompra = fechaCompraDesdeStock < fechaProdDate ? fechaCompraDesdeStock : fechaProdDate;
+  // ---- Fecha límite para emitir la OC ----
+  // El insumo nuevo tarda "leadTime" días en llegar.
+  // Queremos que llegue antes de que la cobertura total baje de 90 días.
+  // Entonces la OC se debe emitir cuando falten (cobertura - 90) días... menos el lead time.
+  // diasHastaStock90 = días hasta que la cobertura total llegue a 90 días
+  const diasHastaStock90 = Math.max(0, coberturaTotal - 90);
+  // La OC tiene que salir "leadTime" días antes de que necesitemos el insumo
+  const diasParaEmitirOC = diasHastaStock90 - leadTime;
+
+  const hoy = new Date();
+  const fechaOC = new Date(hoy);
+  fechaOC.setDate(fechaOC.getDate() + Math.max(0, diasParaEmitirOC));
+
+  // Fecha estimada de llegada
+  const fechaLlegada = new Date(fechaOC);
+  fechaLlegada.setDate(fechaLlegada.getDate() + leadTime);
+
+  // ---- Cantidad a comprar ----
+  // Queremos tener 90 días de insumo DESPUÉS de que llegue la compra.
+  // Al momento de llegada, el stock de insumo habrá bajado.
+  // Consumo diario de insumo = demandaDiariaPT * consumoXPT
+  const consumoDiarioInsumo = demandaDiariaPT * consumoXPT;
+  // Días hasta llegada desde hoy
+  const diasHastaLlegada = Math.max(0, Math.round((fechaLlegada - hoy) / (1000*60*60*24)));
+  // Insumo restante al momento de llegada (puede ser negativo = quiebre)
+  const insumoAlLlegar = stockInsumo - (consumoDiarioInsumo * diasHastaLlegada);
+  // Necesitamos: 90 días de insumo post-llegada
+  const insumoTarget = consumoDiarioInsumo * 90;
+  const cantidadCompra = Math.max(0, Math.ceil(insumoTarget - Math.max(0, insumoAlLlegar)));
+
+  // ---- Alerta de urgencia ----
+  const esUrgente = diasParaEmitirOC < 0;
+  const diasAtraso = Math.abs(Math.min(0, diasParaEmitirOC));
+  const hayQuiebre = insumoAlLlegar < 0;
+  const diasQuiebre = hayQuiebre ? Math.ceil(Math.abs(insumoAlLlegar) / consumoDiarioInsumo) : 0;
 
   // Guardar resultados
-  document.getElementById('nsFechaNecesidadCalc').value = fechaCompra.toISOString().split('T')[0];
+  document.getElementById('nsFechaNecesidadCalc').value = fechaOC.toISOString().split('T')[0];
   document.getElementById('nsCantidadCompra').value = cantidadCompra;
 
   // Mostrar resultados
   const res = document.getElementById('resultadoAnalisis');
   res.classList.remove('hidden');
   res.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-      <div>
-        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;margin-bottom:4px;">Producto Terminado</div>
-        <div style="font-size:13px;">Stock actual: <strong>${stockPT.toLocaleString('es-AR')}</strong> un.</div>
-        <div style="font-size:13px;">Cobertura actual: <strong style="color:${diasStockPT < 30 ? 'var(--red)' : diasStockPT < 60 ? 'var(--orange)' : 'var(--green)'}">${diasStockPT} días</strong></div>
-        <div style="font-size:13px;">Forecast 3M: <strong>${fcstTotal3m.toLocaleString('es-AR')}</strong> un.</div>
-        <div style="font-size:13px;">PT a producir: <strong>${ptAProducir.toLocaleString('es-AR')}</strong> un.</div>
+    ${esUrgente ? `<div style="background:var(--red);color:#fff;padding:10px 14px;border-radius:6px;margin-bottom:12px;font-size:13px;font-weight:600;">
+      ⚠️ OC URGENTE — La orden de compra debería haberse emitido hace ${diasAtraso} días para mantener 90 días de cobertura.
+      ${hayQuiebre ? `<br>⛔ QUIEBRE DE STOCK: habrá ${diasQuiebre} días sin insumo antes de que llegue la compra.` : ''}
+    </div>` : ''}
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+      <div style="text-align:center;padding:10px;background:var(--bg3);border-radius:8px;">
+        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;">Cobertura PT</div>
+        <div style="font-size:22px;font-weight:800;color:${coberturaPT < 30 ? 'var(--red)' : coberturaPT < 60 ? 'var(--orange)' : 'var(--green)'};">${coberturaPT}d</div>
+        <div style="font-size:11px;color:var(--txt2);">${stockPT.toLocaleString('es-AR')} un.</div>
       </div>
-      <div>
-        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;margin-bottom:4px;">Insumo</div>
-        <div style="font-size:13px;">Stock actual: <strong>${stockInsumo.toLocaleString('es-AR')}</strong> un.</div>
-        <div style="font-size:13px;">Cobertura actual: <strong style="color:${diasStockInsumo < 45 ? 'var(--red)' : diasStockInsumo < 90 ? 'var(--orange)' : 'var(--green)'}">${diasStockInsumo} días</strong></div>
-        <div style="font-size:13px;">Consumo para producción: <strong>${insumoParaProduccion.toLocaleString('es-AR')}</strong> un.</div>
-        <div style="font-size:13px;">Target 90d post-compra: <strong>${insumoTarget90d.toLocaleString('es-AR')}</strong> un.</div>
+      <div style="text-align:center;padding:10px;background:var(--bg3);border-radius:8px;">
+        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;">Cobertura Insumo</div>
+        <div style="font-size:22px;font-weight:800;color:${coberturaInsumo < 45 ? 'var(--red)' : coberturaInsumo < 90 ? 'var(--orange)' : 'var(--green)'};">${coberturaInsumo}d</div>
+        <div style="font-size:11px;color:var(--txt2);">${stockInsumo.toLocaleString('es-AR')} un. (= ${Math.round(ptProduciblesConInsumo).toLocaleString('es-AR')} PT)</div>
+      </div>
+      <div style="text-align:center;padding:10px;background:var(--bg3);border-radius:8px;">
+        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;">Cobertura Total</div>
+        <div style="font-size:22px;font-weight:800;color:${coberturaTotal < 90 ? 'var(--red)' : coberturaTotal < 150 ? 'var(--orange)' : 'var(--green)'};">${coberturaTotal}d</div>
+        <div style="font-size:11px;color:var(--txt2);">PT + Insumo convertido</div>
       </div>
     </div>
-    <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+    <div style="margin-top:10px;font-size:12px;color:var(--txt2);line-height:1.6;">
+      Forecast promedio mensual: <strong style="color:var(--txt)">${Math.round(fcstMensualProm).toLocaleString('es-AR')}</strong> un/mes
+      · Demanda diaria: <strong style="color:var(--txt)">${Math.round(demandaDiariaPT)}</strong> PT/día
+      · Consumo diario insumo: <strong style="color:var(--txt)">${Math.round(consumoDiarioInsumo)}</strong> un/día
+      · Lead time: <strong style="color:var(--txt)">${leadTime}</strong> días
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);display:grid;grid-template-columns:1fr 1fr;gap:16px;">
       <div style="text-align:center;">
         <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;">Cantidad a comprar</div>
-        <div style="font-size:24px;font-weight:800;color:var(--gold);">${cantidadCompra.toLocaleString('es-AR')}</div>
-        <div style="font-size:11px;color:var(--txt2);">unidades de insumo</div>
+        <div style="font-size:28px;font-weight:800;color:var(--gold);">${cantidadCompra.toLocaleString('es-AR')}</div>
+        <div style="font-size:12px;color:var(--txt2);">unidades de insumo</div>
       </div>
       <div style="text-align:center;">
-        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;">Fecha límite de compra</div>
-        <div style="font-size:24px;font-weight:800;color:${fechaCompra < new Date() ? 'var(--red)' : 'var(--gold)'};">${fechaCompra.toLocaleDateString('es-AR')}</div>
-        <div style="font-size:11px;color:var(--txt2);">${fechaCompra < new Date() ? '⚠️ ¡Ya pasó la fecha!' : ''}</div>
+        <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;">Fecha recomendada de OC</div>
+        <div style="font-size:28px;font-weight:800;color:${esUrgente ? 'var(--red)' : 'var(--gold)'};">${fechaOC.toLocaleDateString('es-AR')}</div>
+        <div style="font-size:12px;color:var(--txt2);">Llegada estimada: ${fechaLlegada.toLocaleDateString('es-AR')}</div>
       </div>
     </div>`;
 
@@ -1015,13 +1049,13 @@ async function submitSolicitud() {
     const fcstM1 = document.getElementById('nsFcstM1').value;
     const fcstM2 = document.getElementById('nsFcstM2').value;
     const fcstM3 = document.getElementById('nsFcstM3').value;
-    const fechaProdPrev = document.getElementById('nsFechaProdPrevista').value;
     const consumoXPT = document.getElementById('nsConsumoXPT').value;
+    const leadTime = document.getElementById('nsLeadTime').value;
     const cantidadCompra = document.getElementById('nsCantidadCompra').value;
     fechaNecesidad = document.getElementById('nsFechaNecesidadCalc').value || null;
     lanzamiento = fechaNecesidad;
     if (!fechaNecesidad) return toast('Ejecutá el cálculo de fecha y cantidad primero', true);
-    datosRegulares = { stockInsumo, stockPT, fcstM1, fcstM2, fcstM3, fechaProdPrev, consumoXPT, cantidadCompra };
+    datosRegulares = { stockInsumo, stockPT, fcstM1, fcstM2, fcstM3, consumoXPT, leadTime, cantidadCompra };
   }
 
   if (!marca) return toast('Seleccioná una marca', true);
@@ -1076,7 +1110,7 @@ async function submitSolicitud() {
 
   // Create solicitud
   const { data: sol, error } = await sb.from('solicitudes').insert({
-    tipo, marca, nombre, descripcion: fullDesc + (datosRegulares ? `\n--- Análisis Compra Regular ---\nStock Insumo: ${datosRegulares.stockInsumo} | Stock PT: ${datosRegulares.stockPT}\nForecast 3M: ${datosRegulares.fcstM1}/${datosRegulares.fcstM2}/${datosRegulares.fcstM3}\nFecha prod. prevista: ${datosRegulares.fechaProdPrev} | Consumo x PT: ${datosRegulares.consumoXPT}\nCantidad a comprar: ${datosRegulares.cantidadCompra}` : ''),
+    tipo, marca, nombre, descripcion: fullDesc + (datosRegulares ? `\n--- Análisis Compra Regular ---\nStock Insumo: ${datosRegulares.stockInsumo} | Stock PT: ${datosRegulares.stockPT}\nForecast 3M: ${datosRegulares.fcstM1}/${datosRegulares.fcstM2}/${datosRegulares.fcstM3}\nConsumo x PT: ${datosRegulares.consumoXPT} | Lead time: ${datosRegulares.leadTime} días\nCantidad a comprar: ${datosRegulares.cantidadCompra}` : ''),
     fecha_sell_in: sellIn, fecha_lanzamiento: lanzamiento,
     costo_objetivo: costo, cotizacion_responsable: cotiz,
     cotizacion_responsable_nombre: cotizNombre,
