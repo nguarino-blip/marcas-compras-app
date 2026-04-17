@@ -918,9 +918,10 @@ function renderActionBar(s, data) {
       }
       break;
     case 'Pendiente aprobación estética (Marcas)':
-      // Item-level approval handled in items section
-      if (isMarcas()) {
-        html += `<p style="color:var(--txt2);font-size:13px;">Aprobá cada ítem individualmente en la sección de Items.</p>`;
+      if (isMarcas() || canApprove()) {
+        html += `<p style="color:var(--txt2);font-size:13px;">Aprobá cada ítem individualmente en la sección de Items, o usá el botón para aprobar todos.</p>`;
+        html += `<button class="btn-green" onclick="approveAllAesthetic('${sid}')">Aprobar todos los ítems</button>`;
+        html += `<button class="btn-red" onclick="rejectAllAesthetic('${sid}')">Rechazar todos</button>`;
       }
       break;
     case 'Esperando muestras técnicas':
@@ -993,7 +994,7 @@ function renderItems(items, s) {
   const el = document.getElementById('itemsSection');
   if (!items.length) { el.innerHTML = '<p style="color:var(--txt2)">Sin ítems</p>'; return; }
 
-  const showAestheticApproval = s.status === 'Pendiente aprobación estética (Marcas)' && isMarcas();
+  const showAestheticApproval = s.status === 'Pendiente aprobación estética (Marcas)' && (isMarcas() || canApprove());
 
   el.innerHTML = `<table class="items-table">
     <tr>
@@ -1164,22 +1165,29 @@ async function aestheticSamplesArrived(id) {
 }
 
 async function approveItemAesthetic(itemId, solId) {
-  await sb.from('solicitud_items').update({
-    status_estetico: 'aprobado', aprobado_estetico_by: currentUser.id,
-    aprobado_estetico_at: new Date().toISOString()
-  }).eq('id', itemId);
-  await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Ítem aprobado estéticamente' });
+  try {
+    const { error: updErr } = await sb.from('solicitud_items').update({
+      status_estetico: 'aprobado', aprobado_estetico_by: currentUser.id,
+      aprobado_estetico_at: new Date().toISOString()
+    }).eq('id', itemId);
+    if (updErr) throw updErr;
 
-  // Check if all items approved
-  const { data: items } = await sb.from('solicitud_items').select('status_estetico').eq('solicitud_id', solId);
-  const allApproved = items?.every(i => i.status_estetico === 'aprobado');
-  if (allApproved) {
-    await sb.from('solicitudes').update({ status: 'Esperando muestras técnicas' }).eq('id', solId);
-    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems aprobados estéticamente' });
+    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Ítem aprobado estéticamente' });
+
+    // Check if all items approved
+    const { data: items } = await sb.from('solicitud_items').select('status_estetico').eq('solicitud_id', solId);
+    const allApproved = items?.every(i => i.status_estetico === 'aprobado');
+    if (allApproved) {
+      await sb.from('solicitudes').update({ status: 'Esperando muestras técnicas' }).eq('id', solId);
+      await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems aprobados estéticamente' });
+    }
+    await loadSolicitudes();
+    await openSolicitud(solId);
+    toast('Ítem aprobado');
+  } catch (err) {
+    console.error('Error aprobando ítem:', err);
+    toast('Error: ' + (err.message || err), true);
   }
-  await loadSolicitudes();
-  await openSolicitud(solId);
-  toast('Ítem aprobado');
 }
 
 async function rejectItemAesthetic(itemId, solId) {
@@ -1190,6 +1198,47 @@ async function rejectItemAesthetic(itemId, solId) {
   await loadSolicitudes();
   await openSolicitud(solId);
   toast('Ítem rechazado');
+}
+
+async function approveAllAesthetic(solId) {
+  if (!confirm('¿Aprobar todos los ítems estéticamente?')) return;
+  try {
+    const { data: items } = await sb.from('solicitud_items').select('id, status_estetico').eq('solicitud_id', solId);
+    const pendientes = items?.filter(i => i.status_estetico === 'pendiente') || [];
+    for (const it of pendientes) {
+      await sb.from('solicitud_items').update({
+        status_estetico: 'aprobado', aprobado_estetico_by: currentUser.id,
+        aprobado_estetico_at: new Date().toISOString()
+      }).eq('id', it.id);
+    }
+    await sb.from('solicitudes').update({ status: 'Esperando muestras técnicas' }).eq('id', solId);
+    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems aprobados estéticamente' });
+    await loadSolicitudes();
+    await openSolicitud(solId);
+    toast('Todos los ítems aprobados');
+  } catch (err) {
+    console.error(err);
+    toast('Error: ' + err.message, true);
+  }
+}
+
+async function rejectAllAesthetic(solId) {
+  const motivo = prompt('Motivo del rechazo estético de todos los ítems:');
+  if (!motivo) return;
+  try {
+    const { data: items } = await sb.from('solicitud_items').select('id, status_estetico').eq('solicitud_id', solId);
+    const pendientes = items?.filter(i => i.status_estetico === 'pendiente') || [];
+    for (const it of pendientes) {
+      await sb.from('solicitud_items').update({ status_estetico: 'rechazado', notas: motivo }).eq('id', it.id);
+    }
+    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems rechazados estéticamente', detalle: motivo });
+    await loadSolicitudes();
+    await openSolicitud(solId);
+    toast('Todos los ítems rechazados');
+  } catch (err) {
+    console.error(err);
+    toast('Error: ' + err.message, true);
+  }
 }
 
 async function techSamplesArrived(id) {
