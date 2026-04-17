@@ -1,0 +1,1493 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>CDimex — Marcas & Compras</title>
+<style>
+:root{
+  --bg:#0f0f1a;--bg2:#1a1a2e;--bg3:#252540;--card:#1e1e35;
+  --gold:#f0c040;--violet:#a855f7;--green:#22c55e;--red:#ef4444;--orange:#f97316;--blue:#3b82f6;
+  --txt:#e2e2e2;--txt2:#999;--border:#333355;
+  --radius:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;}
+a{color:var(--gold);text-decoration:none;}
+button{cursor:pointer;border:none;border-radius:6px;padding:8px 16px;font-size:14px;font-weight:600;transition:all .2s;}
+input,select,textarea{background:var(--bg3);color:var(--txt);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:14px;width:100%;}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);}
+.btn-gold{background:var(--gold);color:#000;} .btn-gold:hover{background:#daa520;}
+.btn-green{background:var(--green);color:#fff;} .btn-green:hover{opacity:.85;}
+.btn-red{background:var(--red);color:#fff;} .btn-red:hover{opacity:.85;}
+.btn-violet{background:var(--violet);color:#fff;} .btn-violet:hover{opacity:.85;}
+.btn-blue{background:var(--blue);color:#fff;} .btn-blue:hover{opacity:.85;}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--txt);} .btn-outline:hover{border-color:var(--gold);color:var(--gold);}
+.btn-sm{padding:5px 10px;font-size:12px;}
+
+/* Layout */
+.app-bar{background:var(--bg2);padding:12px 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;}
+.app-bar h1{font-size:18px;color:var(--gold);}
+.app-bar .user-info{display:flex;align-items:center;gap:12px;font-size:13px;color:var(--txt2);}
+.app-bar .user-info .role-badge{background:var(--violet);color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;text-transform:uppercase;}
+.container{max-width:1200px;margin:0 auto;padding:20px;}
+.grid{display:grid;gap:16px;}
+.grid-2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr));}
+.grid-3{grid-template-columns:repeat(auto-fit,minmax(250px,1fr));}
+
+/* Cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;transition:border-color .2s;}
+.card:hover{border-color:var(--gold);}
+.card h3{color:var(--gold);margin-bottom:8px;font-size:16px;}
+.card .meta{color:var(--txt2);font-size:12px;margin-bottom:4px;}
+
+/* Status pills */
+.pill{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;text-transform:uppercase;}
+.pill-pending{background:#f0c04022;color:var(--gold);}
+.pill-active{background:#3b82f622;color:var(--blue);}
+.pill-marcas{background:#a855f722;color:var(--violet);}
+.pill-calidad{background:#f9731622;color:var(--orange);}
+.pill-approved{background:#22c55e22;color:var(--green);}
+.pill-rejected{background:#ef444422;color:var(--red);}
+.pill-comex{background:#06b6d422;color:#06b6d4;}
+
+/* Auth screen */
+.auth-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;}
+.auth-box{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:40px;width:100%;max-width:420px;}
+.auth-box h2{color:var(--gold);text-align:center;margin-bottom:8px;}
+.auth-box p{color:var(--txt2);text-align:center;margin-bottom:24px;font-size:14px;}
+.auth-box .field{margin-bottom:16px;}
+.auth-box label{display:block;font-size:13px;color:var(--txt2);margin-bottom:4px;}
+.auth-box .error{color:var(--red);font-size:13px;margin-top:8px;display:none;}
+.auth-box .switch{text-align:center;margin-top:16px;font-size:13px;color:var(--txt2);}
+
+/* Dashboard KPI */
+.kpi-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;flex:1;min-width:140px;text-align:center;}
+.kpi .num{font-size:28px;font-weight:800;color:var(--gold);}
+.kpi .label{font-size:12px;color:var(--txt2);margin-top:2px;}
+
+/* Tabs */
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0;}
+.tab{padding:8px 16px;font-size:14px;color:var(--txt2);border-bottom:2px solid transparent;cursor:pointer;transition:all .2s;}
+.tab.active{color:var(--gold);border-bottom-color:var(--gold);}
+.tab:hover{color:var(--txt);}
+
+/* Retroplan visual */
+.retroplan-timeline{position:relative;padding-left:30px;}
+.retro-step{position:relative;padding:12px 16px;margin-bottom:8px;border-left:3px solid var(--border);transition:all .3s;}
+.retro-step.completed{border-left-color:var(--green);background:rgba(34,197,94,.05);}
+.retro-step.active{border-left-color:var(--gold);background:rgba(240,192,64,.05);}
+.retro-step.overdue{border-left-color:var(--red);background:rgba(239,68,68,.05);}
+.retro-step .dot{position:absolute;left:-9px;top:16px;width:14px;height:14px;border-radius:50%;border:2px solid var(--border);background:var(--bg);}
+.retro-step.completed .dot{border-color:var(--green);background:var(--green);}
+.retro-step.active .dot{border-color:var(--gold);background:var(--gold);}
+.retro-step.overdue .dot{border-color:var(--red);background:var(--red);}
+.retro-step .step-name{font-weight:600;font-size:14px;}
+.retro-step .step-date{font-size:12px;color:var(--txt2);margin-top:2px;}
+.retro-step .step-responsible{font-size:11px;color:var(--violet);margin-top:2px;}
+
+/* Detail sections */
+.section{margin-bottom:24px;}
+.section h3{color:var(--gold);font-size:15px;margin-bottom:12px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+.action-bar{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0;}
+
+/* Items table */
+.items-table{width:100%;border-collapse:collapse;}
+.items-table th{background:var(--bg3);color:var(--txt2);padding:8px;font-size:12px;text-align:left;}
+.items-table td{padding:8px;border-bottom:1px solid var(--border);font-size:13px;}
+
+/* Comments */
+.comment{background:var(--bg3);border-radius:8px;padding:10px 14px;margin-bottom:8px;}
+.comment .author{font-weight:600;font-size:13px;color:var(--gold);}
+.comment .date{font-size:11px;color:var(--txt2);margin-left:8px;}
+.comment .text{font-size:14px;margin-top:4px;}
+
+/* History */
+.history-entry{padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.history-entry .time{color:var(--txt2);font-size:11px;}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:200;padding:20px;}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:700px;max-height:90vh;overflow-y:auto;}
+.modal h2{color:var(--gold);margin-bottom:16px;}
+.modal .field{margin-bottom:14px;}
+.modal label{display:block;font-size:13px;color:var(--txt2);margin-bottom:4px;}
+.modal .row{display:flex;gap:12px;}
+.modal .row>*{flex:1;}
+
+/* Toast */
+.toast{position:fixed;bottom:20px;right:20px;background:var(--green);color:#fff;padding:12px 20px;border-radius:8px;font-size:14px;z-index:300;animation:slideIn .3s ease;}
+.toast.error{background:var(--red);}
+@keyframes slideIn{from{transform:translateX(100px);opacity:0;}to{transform:translateX(0);opacity:1;}}
+
+/* Responsive */
+@media(max-width:768px){
+  .container{padding:12px;}
+  .kpi-row{flex-direction:column;}
+  .modal .row{flex-direction:column;}
+  .app-bar{flex-direction:column;gap:8px;}
+}
+.hidden{display:none!important;}
+.loading{text-align:center;padding:40px;color:var(--txt2);}
+</style>
+</head>
+<body>
+
+<!-- ============= AUTH SCREEN ============= -->
+<div id="authScreen" class="auth-screen">
+  <div class="auth-box">
+    <h2>CDimex</h2>
+    <p>Marcas & Compras — Gestión de Desarrollo</p>
+    <div id="authLogin">
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="loginEmail" placeholder="tu@cdimex.com.ar">
+      </div>
+      <div class="field">
+        <label>Contraseña</label>
+        <input type="password" id="loginPass" placeholder="Tu contraseña">
+      </div>
+      <button class="btn-gold" style="width:100%;padding:12px;font-size:15px;margin-top:8px;" onclick="doLogin()">Ingresar</button>
+      <div class="switch">¿No tenés cuenta? <a href="#" onclick="showRegister()">Registrate</a></div>
+    </div>
+    <div id="authRegister" class="hidden">
+      <div class="field">
+        <label>Nombre completo</label>
+        <input type="text" id="regName" placeholder="Tu nombre">
+      </div>
+      <div class="field">
+        <label>Email corporativo</label>
+        <input type="email" id="regEmail" placeholder="tu@cdimex.com.ar">
+      </div>
+      <div class="field">
+        <label>Contraseña (mínimo 6 caracteres)</label>
+        <input type="password" id="regPass" placeholder="Elegí una contraseña">
+      </div>
+      <button class="btn-gold" style="width:100%;padding:12px;font-size:15px;margin-top:8px;" onclick="doRegister()">Crear cuenta</button>
+      <div class="switch">¿Ya tenés cuenta? <a href="#" onclick="showLogin()">Ingresá</a></div>
+    </div>
+    <div id="authError" class="error"></div>
+  </div>
+</div>
+
+<!-- ============= MAIN APP ============= -->
+<div id="appMain" class="hidden">
+  <div class="app-bar">
+    <h1>CDimex — Marcas & Compras</h1>
+    <div class="user-info">
+      <span id="userName"></span>
+      <span id="userRole" class="role-badge"></span>
+      <button class="btn-outline btn-sm" onclick="doLogout()">Salir</button>
+    </div>
+  </div>
+  <div class="container">
+    <div class="tabs" id="mainTabs">
+      <div class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</div>
+      <div class="tab" data-tab="solicitudes" onclick="switchTab('solicitudes')">Solicitudes</div>
+      <div class="tab" data-tab="aprobaciones" onclick="switchTab('aprobaciones')">Aprobaciones</div>
+      <div class="tab" data-tab="comex" onclick="switchTab('comex')">Comex</div>
+    </div>
+    <div id="tabContent"></div>
+  </div>
+</div>
+
+<!-- ============= SCRIPTS ============= -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+// =============================================
+// CONFIG
+// =============================================
+const SUPABASE_URL = 'https://xgdzzndfpxfghixsngas.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhnZHp6bmRmcHhmZ2hpeHNuZ2FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNjMyMzksImV4cCI6MjA5MTkzOTIzOX0.UioTkXAb3ESiNmKOxpWuDoOtq1ve7258ZV_3Z_mZbt0';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+const MARCAS = ['Cher Fragancias','Cher Beauty','Bensimon','Fascino','Tucci','Sarkany',
+  'Margarita','Oreiro Love','L\'Inedito','Al Shams','Get the Look'];
+
+const STATUS_LIST = [
+  'Pendiente aprobación Compras','Info solicitada','En búsqueda de proveedores',
+  'Retroplan propuesto','Esperando muestras estéticas','Pendiente aprobación estética (Marcas)',
+  'Esperando muestras técnicas','Pendiente aprobación Calidad',
+  'Inspección pre-embarque','Aprobada - Lista para OC','OC emitida',
+  'Comex - Pago y seguimiento','En tránsito','Completado','Rechazada'
+];
+
+const STATUS_PILL_CLASS = {
+  'Pendiente aprobación Compras':'pill-pending','Info solicitada':'pill-pending',
+  'En búsqueda de proveedores':'pill-active','Retroplan propuesto':'pill-active',
+  'Esperando muestras estéticas':'pill-active','Pendiente aprobación estética (Marcas)':'pill-marcas',
+  'Esperando muestras técnicas':'pill-active','Pendiente aprobación Calidad':'pill-calidad',
+  'Inspección pre-embarque':'pill-calidad','Aprobada - Lista para OC':'pill-approved',
+  'OC emitida':'pill-approved','Comex - Pago y seguimiento':'pill-comex',
+  'En tránsito':'pill-comex','Completado':'pill-approved','Rechazada':'pill-rejected'
+};
+
+const PROD_DAYS = {'Frasco vidrio':48,'Frasco plástico':40,'Estuche':35,'Tapa':30,'Válvula':30,'Etiqueta':20,'Otro':45};
+
+const RETROPLAN_TEMPLATES = {
+  'Nuevos desarrollos': [
+    {nombre:'Sell-in',dias:180,responsable:'marcas'},
+    {nombre:'Brief / Solicitud',dias:170,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:165,responsable:'compras'},
+    {nombre:'Búsqueda Shortlist proveedores',dias:160,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:150,responsable:'__COTIZ__'},
+    {nombre:'Muestras estéticas',dias:135,responsable:'compras'},
+    {nombre:'Aprobación estética (Marcas)',dias:125,responsable:'marcas'},
+    {nombre:'Muestras técnicas',dias:115,responsable:'compras'},
+    {nombre:'Aprobación Calidad',dias:105,responsable:'calidad'},
+    {nombre:'Inspección pre-embarque',dias:95,responsable:'calidad'},
+    {nombre:'OC y pago',dias:85,responsable:'compras'},
+    {nombre:'Producción',dias:80,responsable:'compras'},
+    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
+    {nombre:'Recepción',dias:0,responsable:'compras'}
+  ],
+  'Cambio de proveedor': [
+    {nombre:'Sell-in',dias:150,responsable:'marcas'},
+    {nombre:'Brief / Solicitud',dias:140,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:135,responsable:'compras'},
+    {nombre:'Búsqueda Shortlist proveedores',dias:130,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:120,responsable:'__COTIZ__'},
+    {nombre:'Muestras estéticas',dias:105,responsable:'compras'},
+    {nombre:'Aprobación estética (Marcas)',dias:95,responsable:'marcas'},
+    {nombre:'Muestras técnicas',dias:85,responsable:'compras'},
+    {nombre:'Aprobación Calidad',dias:75,responsable:'calidad'},
+    {nombre:'Inspección pre-embarque',dias:65,responsable:'calidad'},
+    {nombre:'OC y pago',dias:55,responsable:'compras'},
+    {nombre:'Producción',dias:50,responsable:'compras'},
+    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
+    {nombre:'Recepción',dias:0,responsable:'compras'}
+  ],
+  'Traspaso compra local al exterior': [
+    {nombre:'Sell-in',dias:140,responsable:'marcas'},
+    {nombre:'Brief / Solicitud',dias:130,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:125,responsable:'compras'},
+    {nombre:'Búsqueda Shortlist proveedores',dias:120,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:110,responsable:'__COTIZ__'},
+    {nombre:'Muestras estéticas',dias:95,responsable:'compras'},
+    {nombre:'Aprobación estética (Marcas)',dias:85,responsable:'marcas'},
+    {nombre:'Muestras técnicas',dias:75,responsable:'compras'},
+    {nombre:'Aprobación Calidad',dias:65,responsable:'calidad'},
+    {nombre:'Inspección pre-embarque',dias:55,responsable:'calidad'},
+    {nombre:'OC y pago',dias:45,responsable:'compras'},
+    {nombre:'Producción',dias:40,responsable:'compras'},
+    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
+    {nombre:'Recepción',dias:0,responsable:'compras'}
+  ],
+  'Compras regulares': [
+    {nombre:'Sell-in',dias:120,responsable:'marcas'},
+    {nombre:'Brief / Solicitud',dias:110,responsable:'marcas'},
+    {nombre:'Aprobación Compras',dias:105,responsable:'compras'},
+    {nombre:'Cotización y negociación',dias:95,responsable:'__COTIZ__'},
+    {nombre:'Inspección pre-embarque',dias:65,responsable:'calidad'},
+    {nombre:'OC y pago',dias:55,responsable:'compras'},
+    {nombre:'Producción',dias:50,responsable:'compras'},
+    {nombre:'Shipping + Aduana',dias:60,responsable:'comex'},
+    {nombre:'Recepción',dias:0,responsable:'compras'}
+  ]
+};
+
+// =============================================
+// STATE
+// =============================================
+let currentUser = null;
+let currentProfile = null;
+let solicitudes = [];
+let currentTab = 'dashboard';
+let viewingSolicitud = null;
+
+// =============================================
+// AUTH
+// =============================================
+function showError(msg) {
+  const el = document.getElementById('authError');
+  el.textContent = msg; el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 5000);
+}
+function showLogin() {
+  document.getElementById('authLogin').classList.remove('hidden');
+  document.getElementById('authRegister').classList.add('hidden');
+}
+function showRegister() {
+  document.getElementById('authLogin').classList.add('hidden');
+  document.getElementById('authRegister').classList.remove('hidden');
+}
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+  const pass = document.getElementById('loginPass').value;
+  if (!email || !pass) return showError('Completá email y contraseña');
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if (error) return showError(error.message);
+  await initApp(data.user);
+}
+
+async function doRegister() {
+  const name = document.getElementById('regName').value.trim();
+  const email = document.getElementById('regEmail').value.trim().toLowerCase();
+  const pass = document.getElementById('regPass').value;
+  if (!name || !email || !pass) return showError('Completá todos los campos');
+  if (pass.length < 6) return showError('La contraseña debe tener al menos 6 caracteres');
+  const { data, error } = await sb.auth.signUp({
+    email, password: pass,
+    options: { data: { full_name: name, email: email } }
+  });
+  if (error) return showError(error.message);
+  if (data.user && !data.user.confirmed_at) {
+    toast('Cuenta creada. Revisá tu email para confirmar.');
+  } else {
+    await initApp(data.user);
+  }
+}
+
+async function doLogout() {
+  await sb.auth.signOut();
+  currentUser = null; currentProfile = null;
+  document.getElementById('appMain').classList.add('hidden');
+  document.getElementById('authScreen').classList.remove('hidden');
+}
+
+async function initApp(user) {
+  currentUser = user;
+  // Fetch profile
+  const { data: profile } = await sb.from('profiles').select('*').eq('id', user.id).single();
+  if (!profile) {
+    showError('No se encontró tu perfil. Contactá al administrador.');
+    return;
+  }
+  currentProfile = profile;
+  document.getElementById('authScreen').classList.add('hidden');
+  document.getElementById('appMain').classList.remove('hidden');
+  document.getElementById('userName').textContent = profile.full_name;
+  document.getElementById('userRole').textContent = profile.role + (profile.sub_roles?.length ? ' / ' + profile.sub_roles.join(', ') : '');
+
+  // Show/hide tabs based on role
+  const comexTab = document.querySelector('[data-tab="comex"]');
+  if (comexTab) {
+    if (profile.role === 'compras' && profile.sub_roles?.includes('comex') || profile.can_approve_solicitud) {
+      comexTab.classList.remove('hidden');
+    } else {
+      comexTab.classList.add('hidden');
+    }
+  }
+
+  await loadSolicitudes();
+  switchTab('dashboard');
+}
+
+// =============================================
+// DATA
+// =============================================
+async function loadSolicitudes() {
+  const { data, error } = await sb.from('solicitudes')
+    .select('*, profiles!solicitudes_created_by_fkey(full_name, email, role)')
+    .order('created_at', { ascending: false });
+  if (!error) solicitudes = data || [];
+}
+
+async function loadSolicitudFull(id) {
+  const [sol, items, pasos, insp, comex, comments, history] = await Promise.all([
+    sb.from('solicitudes').select('*, profiles!solicitudes_created_by_fkey(full_name, email, role)').eq('id', id).single(),
+    sb.from('solicitud_items').select('*').eq('solicitud_id', id).order('created_at'),
+    sb.from('retroplan_pasos').select('*').eq('solicitud_id', id).order('orden'),
+    sb.from('inspecciones').select('*').eq('solicitud_id', id).order('created_at'),
+    sb.from('comex_seguimiento').select('*').eq('solicitud_id', id).single(),
+    sb.from('comentarios').select('*, profiles(full_name)').eq('solicitud_id', id).order('created_at', { ascending: false }),
+    sb.from('historial').select('*, profiles(full_name)').eq('solicitud_id', id).order('created_at', { ascending: false })
+  ]);
+  return {
+    solicitud: sol.data, items: items.data || [], pasos: pasos.data || [],
+    inspecciones: insp.data || [], comex: comex.data, comentarios: comments.data || [], historial: history.data || []
+  };
+}
+
+// =============================================
+// PERMISSIONS
+// =============================================
+function canCreateSolicitud() {
+  return currentProfile?.role === 'marcas' || currentProfile?.role === 'compras';
+}
+function canApprove() {
+  return currentProfile?.can_approve_solicitud === true;
+}
+function isCompras() {
+  return currentProfile?.role === 'compras';
+}
+function isMarcas() {
+  return currentProfile?.role === 'marcas';
+}
+function isComex() {
+  return currentProfile?.sub_roles?.includes('comex');
+}
+function isCalidad() {
+  return currentProfile?.sub_roles?.includes('calidad');
+}
+
+// =============================================
+// UI HELPERS
+// =============================================
+function toast(msg, isError = false) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (isError ? ' error' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+function pill(status) {
+  return `<span class="pill ${STATUS_PILL_CLASS[status] || 'pill-active'}">${status}</span>`;
+}
+
+function fmtDate(d) {
+  if (!d) return '-';
+  return new Date(d + 'T12:00:00').toLocaleDateString('es-AR', { day:'2-digit', month:'short', year:'numeric' });
+}
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + 'T12:00:00');
+  const today = new Date(); today.setHours(12,0,0,0);
+  return Math.round((d - today) / 86400000);
+}
+
+// =============================================
+// TAB SWITCHING
+// =============================================
+function switchTab(tab) {
+  currentTab = tab;
+  viewingSolicitud = null;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  const c = document.getElementById('tabContent');
+  switch (tab) {
+    case 'dashboard': renderDashboard(c); break;
+    case 'solicitudes': renderSolicitudes(c); break;
+    case 'aprobaciones': renderAprobaciones(c); break;
+    case 'comex': renderComex(c); break;
+  }
+}
+
+// =============================================
+// DASHBOARD
+// =============================================
+function renderDashboard(c) {
+  const activas = solicitudes.filter(s => !['Completado','Rechazada'].includes(s.status));
+  const pending = solicitudes.filter(s => s.status === 'Pendiente aprobación Compras');
+  const myPending = solicitudes.filter(s => {
+    if (isMarcas()) return s.status.includes('Marcas') && s.created_by === currentUser.id;
+    if (isCalidad()) return s.status.includes('Calidad') || s.status.includes('Inspección');
+    if (isComex()) return s.status.includes('Comex') || s.status === 'En tránsito';
+    if (isCompras()) return ['Pendiente aprobación Compras','En búsqueda de proveedores','Retroplan propuesto','Esperando muestras estéticas','Esperando muestras técnicas','Aprobada - Lista para OC','OC emitida'].includes(s.status);
+    return false;
+  });
+
+  c.innerHTML = `
+    <div class="kpi-row">
+      <div class="kpi"><div class="num">${activas.length}</div><div class="label">Activas</div></div>
+      <div class="kpi"><div class="num" style="color:var(--orange)">${pending.length}</div><div class="label">Pendientes Aprobación</div></div>
+      <div class="kpi"><div class="num" style="color:var(--violet)">${myPending.length}</div><div class="label">Requieren tu acción</div></div>
+      <div class="kpi"><div class="num" style="color:var(--green)">${solicitudes.filter(s=>s.status==='Completado').length}</div><div class="label">Completadas</div></div>
+    </div>
+    ${canCreateSolicitud() ? '<button class="btn-gold" onclick="openNewSolicitud()" style="margin-bottom:16px;">+ Nueva Solicitud</button>' : ''}
+    <h3 style="color:var(--gold);margin-bottom:12px;">Requieren tu acción</h3>
+    <div class="grid grid-2">
+      ${myPending.length ? myPending.map(s => solicitudCard(s)).join('') : '<p style="color:var(--txt2)">Sin pendientes</p>'}
+    </div>
+    <h3 style="color:var(--gold);margin:20px 0 12px;">Últimas solicitudes</h3>
+    <div class="grid grid-2">
+      ${solicitudes.slice(0, 6).map(s => solicitudCard(s)).join('')}
+    </div>`;
+}
+
+function solicitudCard(s) {
+  return `<div class="card" onclick="openSolicitud('${s.id}')" style="cursor:pointer;">
+    <div style="display:flex;justify-content:space-between;align-items:start;">
+      <h3>#${s.numero} — ${s.nombre}</h3>
+      ${pill(s.status)}
+    </div>
+    <div class="meta">${s.marca} · ${s.tipo}</div>
+    <div class="meta">Creado por: ${s.profiles?.full_name || 'N/A'} · ${fmtDate(s.created_at?.split('T')[0])}</div>
+    ${s.fecha_lanzamiento ? `<div class="meta">Lanzamiento: ${fmtDate(s.fecha_lanzamiento)}</div>` : ''}
+  </div>`;
+}
+
+// =============================================
+// SOLICITUDES LIST
+// =============================================
+function renderSolicitudes(c) {
+  c.innerHTML = `
+    ${canCreateSolicitud() ? '<button class="btn-gold" onclick="openNewSolicitud()" style="margin-bottom:16px;">+ Nueva Solicitud</button>' : ''}
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+      <input type="text" id="searchSol" placeholder="Buscar..." style="max-width:250px;" oninput="filterSolicitudes()">
+      <select id="filterStatus" onchange="filterSolicitudes()" style="max-width:220px;">
+        <option value="">Todos los estados</option>
+        ${STATUS_LIST.map(s => `<option value="${s}">${s}</option>`).join('')}
+      </select>
+      <select id="filterMarca" onchange="filterSolicitudes()" style="max-width:180px;">
+        <option value="">Todas las marcas</option>
+        ${MARCAS.map(m => `<option value="${m}">${m}</option>`).join('')}
+      </select>
+    </div>
+    <div id="solList" class="grid grid-2">
+      ${solicitudes.map(s => solicitudCard(s)).join('')}
+    </div>`;
+}
+
+function filterSolicitudes() {
+  const q = document.getElementById('searchSol').value.toLowerCase();
+  const st = document.getElementById('filterStatus').value;
+  const mk = document.getElementById('filterMarca').value;
+  let filtered = solicitudes;
+  if (q) filtered = filtered.filter(s => s.nombre.toLowerCase().includes(q) || String(s.numero).includes(q));
+  if (st) filtered = filtered.filter(s => s.status === st);
+  if (mk) filtered = filtered.filter(s => s.marca === mk);
+  document.getElementById('solList').innerHTML = filtered.map(s => solicitudCard(s)).join('') || '<p style="color:var(--txt2)">Sin resultados</p>';
+}
+
+// =============================================
+// APROBACIONES
+// =============================================
+function renderAprobaciones(c) {
+  const comprasPend = solicitudes.filter(s => ['Pendiente aprobación Compras','Info solicitada'].includes(s.status));
+  const marcasPend = solicitudes.filter(s => s.status.includes('Marcas'));
+  const calidadPend = solicitudes.filter(s => s.status.includes('Calidad') || s.status.includes('Inspección'));
+
+  c.innerHTML = `
+    <div class="section">
+      <h3>Pendientes Compras (${comprasPend.length})</h3>
+      <div class="grid grid-2">${comprasPend.map(s => solicitudCard(s)).join('') || '<p style="color:var(--txt2)">Sin pendientes</p>'}</div>
+    </div>
+    <div class="section">
+      <h3>Pendientes Marcas (${marcasPend.length})</h3>
+      <div class="grid grid-2">${marcasPend.map(s => solicitudCard(s)).join('') || '<p style="color:var(--txt2)">Sin pendientes</p>'}</div>
+    </div>
+    <div class="section">
+      <h3>Pendientes Calidad (${calidadPend.length})</h3>
+      <div class="grid grid-2">${calidadPend.map(s => solicitudCard(s)).join('') || '<p style="color:var(--txt2)">Sin pendientes</p>'}</div>
+    </div>`;
+}
+
+// =============================================
+// COMEX TAB
+// =============================================
+function renderComex(c) {
+  const comexSol = solicitudes.filter(s => ['OC emitida','Comex - Pago y seguimiento','En tránsito'].includes(s.status));
+  c.innerHTML = `
+    <div class="section">
+      <h3>Seguimiento Comex (${comexSol.length})</h3>
+      <div class="grid grid-2">${comexSol.map(s => solicitudCard(s)).join('') || '<p style="color:var(--txt2)">Sin solicitudes en Comex</p>'}</div>
+    </div>`;
+}
+
+// =============================================
+// NEW SOLICITUD MODAL
+// =============================================
+function openNewSolicitud() {
+  const m = document.createElement('div');
+  m.className = 'modal-overlay';
+  m.id = 'newSolModal';
+  m.innerHTML = `<div class="modal">
+    <h2>Nueva Solicitud</h2>
+    <div class="field">
+      <label>Tipo de solicitud</label>
+      <select id="nsTipo">
+        <option value="Nuevos desarrollos">Nuevos desarrollos</option>
+        <option value="Cambio de proveedor">Cambio de proveedor</option>
+        <option value="Traspaso compra local al exterior">Traspaso compra local al exterior</option>
+        <option value="Compras regulares">Compras regulares</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Marca</label>
+        <select id="nsMarca" onchange="toggleOtraMarca()">
+          ${MARCAS.map(m => `<option>${m}</option>`).join('')}
+          <option value="__otra__">Otra...</option>
+        </select>
+      </div>
+      <div class="field hidden" id="otraMarcaField">
+        <label>Nombre de la marca</label>
+        <input id="nsMarcaOtra" placeholder="Escribí el nombre de la marca">
+      </div>
+      <div class="field">
+        <label>Nombre del desarrollo</label>
+        <input id="nsNombre" placeholder="Ej: Nuevo EDT Cannon Sport">
+      </div>
+    </div>
+    <div class="field">
+      <label>Descripción</label>
+      <textarea id="nsDesc" rows="3" placeholder="Descripción del desarrollo..."></textarea>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Fecha de Sell-in</label>
+        <input type="date" id="nsSellIn">
+      </div>
+      <div class="field">
+        <label>Fecha de Lanzamiento</label>
+        <input type="date" id="nsLanzamiento">
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Costo objetivo (USD)</label>
+        <input type="number" id="nsCosto" placeholder="0.00" step="0.01">
+      </div>
+      <div class="field">
+        <label>Cotización - ¿Quién se ocupa?</label>
+        <select id="nsCotiz" onchange="toggleCotizNombre()">
+          <option value="compras">Se ocupa Compras</option>
+          <option value="marcas">Se ocupa Marcas</option>
+          <option value="conjunto">Se ve en conjunto</option>
+        </select>
+      </div>
+    </div>
+    <div class="field hidden" id="cotizNombreField">
+      <label>Responsable del proceso conjunto</label>
+      <input id="nsCotizNombre" placeholder="Nombre del responsable">
+    </div>
+    <div class="field">
+      <label>Links de referencia (Google Drive, Dropbox, etc.)</label>
+      <input id="nsLinks" placeholder="Separar links con coma">
+    </div>
+    <div class="section">
+      <h3>Items del desarrollo</h3>
+      <div id="nsItems"></div>
+      <button class="btn-outline btn-sm" onclick="addItemField()" style="margin-top:8px;">+ Agregar ítem</button>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px;">
+      <button class="btn-outline" onclick="closeModal('newSolModal')">Cancelar</button>
+      <button class="btn-gold" onclick="submitSolicitud()">Crear Solicitud</button>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  addItemField(); // Add first item by default
+}
+
+function toggleOtraMarca() {
+  const v = document.getElementById('nsMarca').value;
+  document.getElementById('otraMarcaField').classList.toggle('hidden', v !== '__otra__');
+}
+
+function toggleCotizNombre() {
+  const v = document.getElementById('nsCotiz').value;
+  document.getElementById('cotizNombreField').classList.toggle('hidden', v !== 'conjunto');
+}
+
+let itemCount = 0;
+function addItemField() {
+  const d = document.createElement('div');
+  d.className = 'row';
+  d.style.marginBottom = '8px';
+  d.innerHTML = `
+    <div class="field"><input placeholder="Nombre del ítem (ej: Frasco 100ml)" class="item-name"></div>
+    <div class="field">
+      <select class="item-tipo">
+        <option value="Frasco vidrio">Frasco vidrio</option>
+        <option value="Frasco plástico">Frasco plástico</option>
+        <option value="Estuche">Estuche</option>
+        <option value="Tapa">Tapa</option>
+        <option value="Válvula">Válvula</option>
+        <option value="Etiqueta">Etiqueta</option>
+        <option value="Otro">Otro</option>
+      </select>
+    </div>
+    <div class="field">
+      <select class="item-especial">
+        <option value="">Sin tratamiento especial</option>
+        <option value="estuche">Estuche (presupuesto+muestra+aprob)</option>
+        <option value="esencia">Esencia (% y tipo + legales)</option>
+      </select>
+    </div>`;
+  document.getElementById('nsItems').appendChild(d);
+}
+
+async function submitSolicitud() {
+  const tipo = document.getElementById('nsTipo').value;
+  const marcaSel = document.getElementById('nsMarca').value;
+  const marca = marcaSel === '__otra__' ? document.getElementById('nsMarcaOtra').value.trim() : marcaSel;
+  const nombre = document.getElementById('nsNombre').value.trim();
+  const desc = document.getElementById('nsDesc').value.trim();
+  const sellIn = document.getElementById('nsSellIn').value || null;
+  const lanzamiento = document.getElementById('nsLanzamiento').value || null;
+  const costo = parseFloat(document.getElementById('nsCosto').value) || null;
+  const cotiz = document.getElementById('nsCotiz').value;
+  const cotizNombre = document.getElementById('nsCotizNombre')?.value?.trim() || null;
+  const linksRaw = document.getElementById('nsLinks').value.trim();
+  const links = linksRaw ? linksRaw.split(',').map(l => l.trim()).filter(Boolean) : [];
+
+  if (!marca) return toast('Seleccioná una marca', true);
+  if (!nombre) return toast('Completá el nombre del desarrollo', true);
+  if (!lanzamiento) return toast('La fecha de lanzamiento es obligatoria', true);
+
+  try {
+  // Collect items
+  const itemNames = document.querySelectorAll('.item-name');
+  const itemTipos = document.querySelectorAll('.item-tipo');
+  const itemEspeciales = document.querySelectorAll('.item-especial');
+  const items = [];
+  for (let i = 0; i < itemNames.length; i++) {
+    const n = itemNames[i].value.trim();
+    if (n) items.push({ nombre: n, tipo_producto: itemTipos[i].value, tratamiento_especial: itemEspeciales[i].value || null });
+  }
+
+  // Create solicitud
+  const { data: sol, error } = await sb.from('solicitudes').insert({
+    tipo, marca, nombre, descripcion: desc,
+    fecha_sell_in: sellIn, fecha_lanzamiento: lanzamiento,
+    costo_objetivo: costo, cotizacion_responsable: cotiz,
+    cotizacion_responsable_nombre: cotizNombre,
+    links_referencia: links,
+    status: 'Pendiente aprobación Compras',
+    created_by: currentUser.id
+  }).select().single();
+
+  if (error) return toast('Error: ' + error.message, true);
+
+  // Create items
+  if (items.length) {
+    await sb.from('solicitud_items').insert(items.map(it => ({ ...it, solicitud_id: sol.id })));
+  }
+
+  // Generate retroplan
+  const template = RETROPLAN_TEMPLATES[tipo] || RETROPLAN_TEMPLATES['Nuevos desarrollos'];
+  const launchDate = new Date(lanzamiento + 'T12:00:00');
+  const pasos = template.map((t, i) => {
+    const fecha = new Date(launchDate);
+    fecha.setDate(fecha.getDate() - t.dias);
+    let resp = t.responsable;
+    if (resp === '__COTIZ__') resp = cotiz;
+    return {
+      solicitud_id: sol.id, orden: i + 1, nombre: t.nombre,
+      responsable: resp, dias_offset: t.dias,
+      fecha_objetivo: fecha.toISOString().split('T')[0]
+    };
+  });
+  await sb.from('retroplan_pasos').insert(pasos);
+
+  // Log history
+  await sb.from('historial').insert({
+    solicitud_id: sol.id, actor_id: currentUser.id,
+    evento: 'Solicitud creada', detalle: `Tipo: ${tipo}, Marca: ${marca}`
+  });
+
+  // Send email notification
+  await sendEmail(
+    ['nmaggi@cdimex.com.ar','nguarino@cdimex.com.ar','mjaimes@cdimex.com.ar'],
+    `Nueva solicitud #${sol.numero}: ${nombre}`,
+    `<p><strong>${currentProfile.full_name}</strong> creó una nueva solicitud:</p>
+     <p><strong>${nombre}</strong> (${marca}) — ${tipo}</p>
+     <p>Fecha lanzamiento: ${fmtDate(lanzamiento)}</p>
+     <p>Ingresá a la app para revisarla y aprobarla.</p>`
+  );
+
+  closeModal('newSolModal');
+  await loadSolicitudes();
+  switchTab('dashboard');
+  toast('Solicitud creada exitosamente');
+  } catch (err) {
+    console.error('Error creando solicitud:', err);
+    toast('Error al crear solicitud: ' + (err.message || err), true);
+  }
+}
+
+// =============================================
+// SOLICITUD DETAIL VIEW
+// =============================================
+async function openSolicitud(id) {
+  const c = document.getElementById('tabContent');
+  c.innerHTML = '<div class="loading">Cargando solicitud...</div>';
+  viewingSolicitud = id;
+  const data = await loadSolicitudFull(id);
+  if (!data.solicitud) return toast('No se encontró la solicitud', true);
+  renderSolicitudDetail(c, data);
+}
+
+function renderSolicitudDetail(c, data) {
+  const s = data.solicitud;
+  const isOwner = s.created_by === currentUser.id;
+
+  c.innerHTML = `
+    <button class="btn-outline btn-sm" onclick="switchTab(currentTab)" style="margin-bottom:16px;">← Volver</button>
+    <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:12px;">
+      <div>
+        <h2 style="color:var(--gold);margin-bottom:4px;">#${s.numero} — ${s.nombre}</h2>
+        <div style="color:var(--txt2);font-size:14px;">${s.marca} · ${s.tipo} · Creado por ${s.profiles?.full_name || 'N/A'}</div>
+      </div>
+      <div>${pill(s.status)}</div>
+    </div>
+
+    <div class="grid grid-2" style="margin-top:16px;">
+      <div class="card">
+        <h3>Información</h3>
+        ${s.descripcion ? `<p style="margin-bottom:8px;">${s.descripcion}</p>` : ''}
+        <div class="meta">Fecha Sell-in: <strong>${fmtDate(s.fecha_sell_in)}</strong></div>
+        <div class="meta">Fecha Lanzamiento: <strong>${fmtDate(s.fecha_lanzamiento)}</strong>
+          ${(isCompras() || canApprove()) && s.status !== 'Completado' ? `<button class="btn-outline btn-sm" onclick="changeLaunchDate('${s.id}','${s.fecha_lanzamiento}')" style="margin-left:8px;">Cambiar fecha</button>` : ''}
+        </div>
+        <div class="meta">Costo objetivo: <strong>${s.costo_objetivo ? 'USD ' + s.costo_objetivo : '-'}</strong></div>
+        <div class="meta">Cotización: <strong>${s.cotizacion_responsable || '-'}${s.cotizacion_responsable_nombre ? ' (' + s.cotizacion_responsable_nombre + ')' : ''}</strong></div>
+        ${s.links_referencia?.length ? `<div class="meta">Links: ${s.links_referencia.map(l => `<a href="${l}" target="_blank">${l.substring(0, 50)}...</a>`).join(', ')}</div>` : ''}
+      </div>
+      <div class="card">
+        <h3>Acciones</h3>
+        <div class="action-bar" id="actionBar"></div>
+      </div>
+    </div>
+
+    <div class="section" style="margin-top:20px;">
+      <h3>Retroplan</h3>
+      <div class="retroplan-timeline" id="retroplanTimeline"></div>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="section">
+        <h3>Items del desarrollo (${data.items.length})</h3>
+        <div id="itemsSection"></div>
+      </div>
+      <div class="section">
+        <h3>Inspecciones pre-embarque</h3>
+        <div id="inspeccionesSection"></div>
+      </div>
+    </div>
+
+    ${s.status === 'Comex - Pago y seguimiento' || s.status === 'En tránsito' || data.comex ? `
+    <div class="section">
+      <h3>Seguimiento Comex</h3>
+      <div id="comexSection"></div>
+    </div>` : ''}
+
+    <div class="grid grid-2">
+      <div class="section">
+        <h3>Comentarios</h3>
+        <div style="margin-bottom:12px;">
+          <textarea id="newComment" rows="2" placeholder="Escribí un comentario..."></textarea>
+          <button class="btn-gold btn-sm" onclick="addComment('${s.id}')" style="margin-top:4px;">Enviar</button>
+        </div>
+        <div id="commentsSection"></div>
+      </div>
+      <div class="section">
+        <h3>Historial</h3>
+        <div id="historySection"></div>
+      </div>
+    </div>`;
+
+  // Render subsections
+  renderActionBar(s, data);
+  renderRetroplan(data.pasos);
+  renderItems(data.items, s);
+  renderInspecciones(data.inspecciones, s);
+  if (data.comex) renderComexDetail(data.comex, s);
+  renderComments(data.comentarios);
+  renderHistory(data.historial);
+}
+
+// =============================================
+// ACTION BAR (role-based buttons)
+// =============================================
+function renderActionBar(s, data) {
+  const bar = document.getElementById('actionBar');
+  let html = '';
+  const sid = s.id;
+
+  switch (s.status) {
+    case 'Pendiente aprobación Compras':
+      if (canApprove()) {
+        html += `<button class="btn-green" onclick="approveCompras('${sid}')">Aprobar solicitud</button>`;
+        html += `<button class="btn-gold" onclick="requestInfo('${sid}')">Solicitar info</button>`;
+        html += `<button class="btn-red" onclick="rejectSolicitud('${sid}')">Rechazar</button>`;
+      }
+      break;
+    case 'Info solicitada':
+      if (isMarcas() && s.created_by === currentUser.id) {
+        html += `<button class="btn-gold" onclick="resendInfo('${sid}')">Reenviar con info adicional</button>`;
+      }
+      break;
+    case 'En búsqueda de proveedores':
+      if (isCompras()) {
+        html += `<button class="btn-gold" onclick="proposeRetroplan('${sid}')">Proponer retroplan</button>`;
+      }
+      break;
+    case 'Retroplan propuesto':
+      if (isCompras()) {
+        html += `<button class="btn-violet" onclick="requestAestheticSamples('${sid}')">Solicitar muestras estéticas</button>`;
+      }
+      break;
+    case 'Esperando muestras estéticas':
+      if (isCompras()) {
+        html += `<button class="btn-gold" onclick="aestheticSamplesArrived('${sid}')">Muestras recibidas</button>`;
+      }
+      break;
+    case 'Pendiente aprobación estética (Marcas)':
+      // Item-level approval handled in items section
+      if (isMarcas()) {
+        html += `<p style="color:var(--txt2);font-size:13px;">Aprobá cada ítem individualmente en la sección de Items.</p>`;
+      }
+      break;
+    case 'Esperando muestras técnicas':
+      if (isCalidad() || isCompras()) {
+        html += `<button class="btn-gold" onclick="techSamplesArrived('${sid}')">Muestras técnicas recibidas</button>`;
+      }
+      break;
+    case 'Pendiente aprobación Calidad':
+      if (isCalidad()) {
+        html += `<button class="btn-green" onclick="calidadApprove('${sid}')">Calidad: Aprobar</button>`;
+        html += `<button class="btn-red" onclick="calidadReject('${sid}')">Calidad: Rechazar</button>`;
+      }
+      break;
+    case 'Inspección pre-embarque':
+      html += `<p style="color:var(--txt2);font-size:13px;">Las inspecciones se aprueban individualmente abajo.</p>`;
+      break;
+    case 'Aprobada - Lista para OC':
+      if (isCompras()) {
+        html += `<button class="btn-green" onclick="emitOC('${sid}')">Emitir OC</button>`;
+      }
+      break;
+    case 'OC emitida':
+      if (isComex()) {
+        html += `<button class="btn-blue" onclick="comexTakeOver('${sid}')">Comex: Tomar seguimiento</button>`;
+      }
+      break;
+    case 'Comex - Pago y seguimiento':
+      if (isComex()) {
+        html += `<button class="btn-blue" onclick="markInTransit('${sid}')">Marcar en tránsito</button>`;
+      }
+      break;
+    case 'En tránsito':
+      if (isComex() || isCompras()) {
+        html += `<button class="btn-green" onclick="markCompleted('${sid}')">Marcar completado</button>`;
+      }
+      break;
+  }
+
+  bar.innerHTML = html || '<span style="color:var(--txt2);font-size:13px;">Sin acciones disponibles para tu rol en este estado.</span>';
+}
+
+// =============================================
+// RETROPLAN VISUAL
+// =============================================
+function renderRetroplan(pasos) {
+  const el = document.getElementById('retroplanTimeline');
+  if (!pasos.length) { el.innerHTML = '<p style="color:var(--txt2)">Sin retroplan definido</p>'; return; }
+
+  el.innerHTML = pasos.map(p => {
+    const days = daysUntil(p.fecha_objetivo);
+    let cls = '';
+    if (p.completado) cls = 'completed';
+    else if (days !== null && days < 0) cls = 'overdue';
+    else if (days !== null && days <= 10) cls = 'active';
+
+    return `<div class="retro-step ${cls}">
+      <div class="dot"></div>
+      <div class="step-name">${p.completado ? '✓ ' : ''}${p.nombre}</div>
+      <div class="step-date">${fmtDate(p.fecha_objetivo)}${p.completado ? ' — Completado ' + fmtDate(p.fecha_completado) : (days !== null && days < 0 ? ` — <span style="color:var(--red)">Vencido hace ${Math.abs(days)}d</span>` : (days !== null ? ` — ${days}d restantes` : ''))}</div>
+      <div class="step-responsible">${p.responsable || ''}</div>
+      ${!p.completado && (isCompras() || canApprove()) ? `<button class="btn-outline btn-sm" onclick="completePaso('${p.id}')" style="margin-top:4px;">Marcar completado</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// =============================================
+// ITEMS
+// =============================================
+function renderItems(items, s) {
+  const el = document.getElementById('itemsSection');
+  if (!items.length) { el.innerHTML = '<p style="color:var(--txt2)">Sin ítems</p>'; return; }
+
+  const showAestheticApproval = s.status === 'Pendiente aprobación estética (Marcas)' && isMarcas();
+
+  el.innerHTML = `<table class="items-table">
+    <tr>
+      <th>Ítem</th><th>Tipo</th><th>Estético</th><th>Técnico</th><th>Especial</th>
+      ${showAestheticApproval ? '<th>Acciones</th>' : ''}
+      <th>Compra parcial</th>
+    </tr>
+    ${items.map(it => `<tr>
+      <td>${it.nombre}</td>
+      <td>${it.tipo_producto || '-'}</td>
+      <td>${pill_item(it.status_estetico)}</td>
+      <td>${pill_item(it.status_tecnico)}</td>
+      <td>${it.tratamiento_especial ? `<span style="color:var(--orange)">${it.tratamiento_especial}</span>` : '-'}</td>
+      ${showAestheticApproval && it.status_estetico === 'pendiente' ? `<td>
+        <button class="btn-green btn-sm" onclick="approveItemAesthetic('${it.id}','${s.id}')">Aprobar</button>
+        <button class="btn-red btn-sm" onclick="rejectItemAesthetic('${it.id}','${s.id}')">Rechazar</button>
+      </td>` : showAestheticApproval ? '<td>-</td>' : ''}
+      <td>
+        ${it.compra_parcial ? `<span style="color:var(--green)">Sí</span> — ${it.compra_parcial_detalle || ''}` : '-'}
+        ${isCompras() ? `<button class="btn-outline btn-sm" onclick="toggleCompraParcial('${it.id}','${s.id}')" style="margin-left:4px;">Editar</button>` : ''}
+      </td>
+    </tr>`).join('')}
+  </table>
+  ${isCompras() ? `<button class="btn-outline btn-sm" onclick="addItemToSolicitud('${s.id}')" style="margin-top:8px;">+ Agregar ítem</button>` : ''}`;
+}
+
+function pill_item(status) {
+  const cls = status === 'aprobado' ? 'pill-approved' : status === 'rechazado' ? 'pill-rejected' : 'pill-pending';
+  return `<span class="pill ${cls}">${status}</span>`;
+}
+
+// =============================================
+// INSPECCIONES PRE-EMBARQUE
+// =============================================
+function renderInspecciones(inspecciones, s) {
+  const el = document.getElementById('inspeccionesSection');
+  const tipos = [
+    { key: 'calidad_funcional', label: 'Calidad - Funcionalidad', canApproveRole: () => isCalidad() },
+    { key: 'estetica_marcas', label: 'Marcas - Estética', canApproveRole: () => isMarcas() },
+    { key: 'comex_packing', label: 'Comex - Packing List & Shipping Marks', canApproveRole: () => isComex() }
+  ];
+
+  const showInsp = s.status === 'Inspección pre-embarque';
+
+  el.innerHTML = tipos.map(t => {
+    const insp = inspecciones.find(i => i.tipo === t.key);
+    const resultado = insp?.resultado || 'pendiente';
+    return `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);">
+      <div style="flex:1;font-size:14px;">${t.label}</div>
+      <div>${pill_item(resultado)}</div>
+      ${showInsp && resultado === 'pendiente' && t.canApproveRole() ? `
+        <button class="btn-green btn-sm" onclick="approveInspeccion('${s.id}','${t.key}')">Aprobar</button>
+        <button class="btn-red btn-sm" onclick="rejectInspeccion('${s.id}','${t.key}')">Desaprobar</button>
+      ` : ''}
+    </div>`;
+  }).join('');
+}
+
+// =============================================
+// COMEX DETAIL
+// =============================================
+function renderComexDetail(comex, s) {
+  const el = document.getElementById('comexSection');
+  if (!el) return;
+  el.innerHTML = `<div class="card">
+    <div class="meta">OP: <strong>${comex.op_numero || 'Sin asignar'}</strong>
+      ${isComex() ? `<button class="btn-outline btn-sm" onclick="editComexOP('${comex.id}')" style="margin-left:8px;">Editar</button>` : ''}
+    </div>
+    <div class="meta">Pago exterior: <strong>${comex.pago_exterior_status}</strong></div>
+    <div class="meta">Packing list: ${comex.packing_list_ok ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--red)">✗</span>'}
+      Shipping marks: ${comex.shipping_marks_ok ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--red)">✗</span>'}</div>
+    ${comex.notas ? `<div class="meta">Notas: ${comex.notas}</div>` : ''}
+    ${isComex() ? `<button class="btn-blue btn-sm" onclick="editComex('${comex.id}')" style="margin-top:8px;">Editar seguimiento</button>` : ''}
+  </div>`;
+}
+
+// =============================================
+// COMMENTS & HISTORY
+// =============================================
+function renderComments(comments) {
+  const el = document.getElementById('commentsSection');
+  el.innerHTML = comments.map(c => `<div class="comment">
+    <span class="author">${c.profiles?.full_name || 'Usuario'}</span>
+    <span class="date">${fmtDate(c.created_at?.split('T')[0])}</span>
+    <div class="text">${c.texto}</div>
+  </div>`).join('') || '<p style="color:var(--txt2)">Sin comentarios</p>';
+}
+
+function renderHistory(history) {
+  const el = document.getElementById('historySection');
+  el.innerHTML = history.map(h => `<div class="history-entry">
+    <span class="time">${fmtDate(h.created_at?.split('T')[0])}</span>
+    <strong>${h.profiles?.full_name || 'Sistema'}</strong>: ${h.evento}
+    ${h.detalle ? `<br><span style="color:var(--txt2);font-size:12px;">${h.detalle}</span>` : ''}
+  </div>`).join('') || '<p style="color:var(--txt2)">Sin historial</p>';
+}
+
+// =============================================
+// WORKFLOW ACTIONS
+// =============================================
+async function updateStatus(id, newStatus, evento, detalle, emailTo, emailSubject, emailBody) {
+  await sb.from('solicitudes').update({ status: newStatus }).eq('id', id);
+  await sb.from('historial').insert({ solicitud_id: id, actor_id: currentUser.id, evento, detalle });
+  if (emailTo && emailSubject) {
+    await sendEmail(emailTo, emailSubject, emailBody || `<p>${evento}</p>`);
+  }
+  await loadSolicitudes();
+  await openSolicitud(id);
+  toast(evento);
+}
+
+async function approveCompras(id) {
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'En búsqueda de proveedores', 'Solicitud aprobada por Compras',
+    `Aprobada por ${currentProfile.full_name}`,
+    [s.profiles?.email].filter(Boolean),
+    `Solicitud #${s.numero} aprobada`,
+    `<p>Tu solicitud <strong>${s.nombre}</strong> fue aprobada por Compras. Comenzamos búsqueda de proveedores.</p>`);
+}
+
+async function requestInfo(id) {
+  const motivo = prompt('¿Qué información necesitás?');
+  if (!motivo) return;
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Info solicitada', 'Info solicitada por Compras', motivo,
+    [s.profiles?.email].filter(Boolean),
+    `Solicitud #${s.numero}: Se necesita más información`,
+    `<p>Compras necesita más información sobre tu solicitud <strong>${s.nombre}</strong>:</p><p>${motivo}</p>`);
+}
+
+async function rejectSolicitud(id) {
+  const motivo = prompt('Motivo del rechazo:');
+  if (!motivo) return;
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Rechazada', 'Solicitud rechazada', motivo,
+    [s.profiles?.email].filter(Boolean),
+    `Solicitud #${s.numero} rechazada`,
+    `<p>Tu solicitud <strong>${s.nombre}</strong> fue rechazada. Motivo: ${motivo}</p>`);
+}
+
+async function resendInfo(id) {
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Pendiente aprobación Compras', 'Info reenviada por Marcas', null,
+    ['nmaggi@cdimex.com.ar','nguarino@cdimex.com.ar','mjaimes@cdimex.com.ar'],
+    `Solicitud #${s.numero}: Info actualizada`,
+    `<p>${currentProfile.full_name} actualizó la información de la solicitud <strong>${s.nombre}</strong>. Revisá y aprobá.</p>`);
+}
+
+async function proposeRetroplan(id) {
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Retroplan propuesto', 'Retroplan propuesto por Compras', null,
+    [s.profiles?.email].filter(Boolean),
+    `Solicitud #${s.numero}: Retroplan definido`,
+    `<p>Se definió el retroplan para <strong>${s.nombre}</strong>. Revisalo en la app.</p>`);
+}
+
+async function requestAestheticSamples(id) {
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Esperando muestras estéticas', 'Muestras estéticas solicitadas', null);
+}
+
+async function aestheticSamplesArrived(id) {
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Pendiente aprobación estética (Marcas)', 'Muestras estéticas recibidas', null,
+    [s.profiles?.email].filter(Boolean),
+    `Solicitud #${s.numero}: Muestras estéticas listas para aprobación`,
+    `<p>Las muestras estéticas de <strong>${s.nombre}</strong> llegaron. Ingresá a la app para aprobar cada ítem.</p>`);
+}
+
+async function approveItemAesthetic(itemId, solId) {
+  await sb.from('solicitud_items').update({
+    status_estetico: 'aprobado', aprobado_estetico_by: currentUser.id,
+    aprobado_estetico_at: new Date().toISOString()
+  }).eq('id', itemId);
+  await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Ítem aprobado estéticamente' });
+
+  // Check if all items approved
+  const { data: items } = await sb.from('solicitud_items').select('status_estetico').eq('solicitud_id', solId);
+  const allApproved = items?.every(i => i.status_estetico === 'aprobado');
+  if (allApproved) {
+    await sb.from('solicitudes').update({ status: 'Esperando muestras técnicas' }).eq('id', solId);
+    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems aprobados estéticamente' });
+  }
+  await loadSolicitudes();
+  await openSolicitud(solId);
+  toast('Ítem aprobado');
+}
+
+async function rejectItemAesthetic(itemId, solId) {
+  const motivo = prompt('Motivo del rechazo estético:');
+  if (!motivo) return;
+  await sb.from('solicitud_items').update({ status_estetico: 'rechazado', notas: motivo }).eq('id', itemId);
+  await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Ítem rechazado estéticamente', detalle: motivo });
+  await loadSolicitudes();
+  await openSolicitud(solId);
+  toast('Ítem rechazado');
+}
+
+async function techSamplesArrived(id) {
+  await updateStatus(id, 'Pendiente aprobación Calidad', 'Muestras técnicas recibidas', null,
+    ['nmaggi@cdimex.com.ar','abenitez@cdimex.com.ar'],
+    `Solicitud #${solicitudes.find(x=>x.id===id)?.numero}: Muestras técnicas para aprobación Calidad`,
+    `<p>Las muestras técnicas están listas para pruebas de laboratorio.</p>`);
+}
+
+async function calidadApprove(id) {
+  // Create inspection records
+  await sb.from('inspecciones').insert([
+    { solicitud_id: id, tipo: 'calidad_funcional', resultado: 'pendiente' },
+    { solicitud_id: id, tipo: 'estetica_marcas', resultado: 'pendiente' },
+    { solicitud_id: id, tipo: 'comex_packing', resultado: 'pendiente' }
+  ]);
+  await updateStatus(id, 'Inspección pre-embarque', 'Calidad aprobó - Inspección pre-embarque iniciada', null);
+}
+
+async function calidadReject(id) {
+  const motivo = prompt('Motivo del rechazo de Calidad:');
+  if (!motivo) return;
+  const s = solicitudes.find(x => x.id === id);
+  await updateStatus(id, 'Esperando muestras técnicas', 'Calidad rechazó', motivo,
+    [s.profiles?.email].filter(Boolean),
+    `Solicitud #${s.numero}: Calidad rechazó las muestras`,
+    `<p>Las muestras técnicas de <strong>${s.nombre}</strong> fueron rechazadas por Calidad. Motivo: ${motivo}</p>`);
+}
+
+async function approveInspeccion(solId, tipo) {
+  const { data: insp } = await sb.from('inspecciones').select('*').eq('solicitud_id', solId).eq('tipo', tipo).single();
+  if (insp) {
+    await sb.from('inspecciones').update({
+      resultado: 'aprobado', aprobado_by: currentUser.id, aprobado_at: new Date().toISOString()
+    }).eq('id', insp.id);
+  }
+  await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: `Inspección ${tipo} aprobada` });
+
+  // Check if all inspections approved
+  const { data: allInsp } = await sb.from('inspecciones').select('resultado').eq('solicitud_id', solId);
+  const allOk = allInsp?.every(i => i.resultado === 'aprobado');
+  if (allOk) {
+    await sb.from('solicitudes').update({ status: 'Aprobada - Lista para OC' }).eq('id', solId);
+    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todas las inspecciones aprobadas - Lista para OC' });
+  }
+  await loadSolicitudes();
+  await openSolicitud(solId);
+  toast('Inspección aprobada');
+}
+
+async function rejectInspeccion(solId, tipo) {
+  const motivo = prompt('Motivo de desaprobación:');
+  if (!motivo) return;
+  const { data: insp } = await sb.from('inspecciones').select('*').eq('solicitud_id', solId).eq('tipo', tipo).single();
+  if (insp) {
+    await sb.from('inspecciones').update({ resultado: 'desaprobado', notas: motivo }).eq('id', insp.id);
+  }
+  // Route back: Calidad/Marcas resolve
+  await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: `Inspección ${tipo} desaprobada`, detalle: motivo });
+  toast('Inspección desaprobada — Calidad y Marcas deben resolver');
+  await loadSolicitudes();
+  await openSolicitud(solId);
+}
+
+async function emitOC(id) {
+  const s = solicitudes.find(x => x.id === id);
+  // Mark retroplan step completed
+  await completePasoByName(id, 'OC y pago');
+  await updateStatus(id, 'OC emitida', 'OC emitida', null,
+    ['lruiz@cdimex.com.ar','nroldan@cdimex.com.ar'],
+    `Solicitud #${s.numero}: OC emitida - Comex tomar seguimiento`,
+    `<p>Se emitió la OC para <strong>${s.nombre}</strong>. Comex debe tomar el seguimiento.</p>`);
+}
+
+async function comexTakeOver(id) {
+  // Create comex tracking record
+  await sb.from('comex_seguimiento').insert({ solicitud_id: id });
+  await updateStatus(id, 'Comex - Pago y seguimiento', 'Comex tomó seguimiento', null);
+
+  // Sync to Google Sheets
+  const s = solicitudes.find(x => x.id === id);
+  try {
+    await fetch('/api/sheets-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': 'cdimex-internal-2024' },
+      body: JSON.stringify({
+        action: 'write', solicitudId: id,
+        data: {
+          numero: s?.numero, nombre: s?.nombre, marca: s?.marca, tipo: s?.tipo,
+          fecha_oc: new Date().toISOString().split('T')[0],
+          pago_status: 'pendiente', estado: 'Comex - Pago y seguimiento'
+        }
+      })
+    });
+  } catch (e) { console.warn('Sheets sync error:', e); }
+}
+
+async function markInTransit(id) {
+  await completePasoByName(id, 'Shipping + Aduana');
+  await updateStatus(id, 'En tránsito', 'Marcado en tránsito', null);
+}
+
+async function markCompleted(id) {
+  await completePasoByName(id, 'Recepción');
+  await updateStatus(id, 'Completado', 'Solicitud completada', null);
+}
+
+// =============================================
+// RETROPLAN STEP COMPLETION
+// =============================================
+async function completePaso(pasoId) {
+  await sb.from('retroplan_pasos').update({
+    completado: true, fecha_completado: new Date().toISOString().split('T')[0]
+  }).eq('id', pasoId);
+  toast('Paso completado');
+  if (viewingSolicitud) await openSolicitud(viewingSolicitud);
+}
+
+async function completePasoByName(solId, nombre) {
+  const { data } = await sb.from('retroplan_pasos').select('id').eq('solicitud_id', solId).eq('nombre', nombre).single();
+  if (data) {
+    await sb.from('retroplan_pasos').update({
+      completado: true, fecha_completado: new Date().toISOString().split('T')[0]
+    }).eq('id', data.id);
+  }
+}
+
+// =============================================
+// CHANGE LAUNCH DATE
+// =============================================
+async function changeLaunchDate(id, currentDate) {
+  const newDate = prompt('Nueva fecha de lanzamiento (YYYY-MM-DD):', currentDate);
+  if (!newDate || newDate === currentDate) return;
+
+  // Update solicitud
+  await sb.from('solicitudes').update({ fecha_lanzamiento: newDate }).eq('id', id);
+
+  // Recalculate all retroplan dates
+  const { data: pasos } = await sb.from('retroplan_pasos').select('*').eq('solicitud_id', id).order('orden');
+  const launchDate = new Date(newDate + 'T12:00:00');
+  for (const p of pasos) {
+    const fecha = new Date(launchDate);
+    fecha.setDate(fecha.getDate() - p.dias_offset);
+    await sb.from('retroplan_pasos').update({ fecha_objetivo: fecha.toISOString().split('T')[0] }).eq('id', p.id);
+  }
+
+  // Log and notify
+  await sb.from('historial').insert({
+    solicitud_id: id, actor_id: currentUser.id,
+    evento: 'Fecha de lanzamiento modificada',
+    detalle: `De ${currentDate} a ${newDate}. Todo el retroplan fue recalculado.`
+  });
+
+  const s = solicitudes.find(x => x.id === id);
+  // Notify all involved
+  const { data: allProfiles } = await sb.from('profiles').select('email');
+  const emails = allProfiles?.map(p => p.email) || [];
+  await sendEmail(emails,
+    `CAMBIO DE FECHA: Solicitud #${s.numero} — ${s.nombre}`,
+    `<p><strong>${currentProfile.full_name}</strong> cambió la fecha de lanzamiento de <strong>${s.nombre}</strong>.</p>
+     <p>Fecha anterior: ${fmtDate(currentDate)}</p>
+     <p>Nueva fecha: ${fmtDate(newDate)}</p>
+     <p><strong>Todo el retroplan fue recalculado.</strong> Revisá las nuevas fechas en la app.</p>`
+  );
+
+  toast('Fecha de lanzamiento actualizada y retroplan recalculado');
+  await loadSolicitudes();
+  await openSolicitud(id);
+}
+
+// =============================================
+// COMPRA PARCIAL
+// =============================================
+async function toggleCompraParcial(itemId, solId) {
+  const detalle = prompt('Detalle de compra parcial (dejar vacío para quitar):');
+  const parcial = detalle ? true : false;
+  await sb.from('solicitud_items').update({ compra_parcial: parcial, compra_parcial_detalle: detalle || null }).eq('id', itemId);
+  await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: parcial ? 'Compra parcial registrada' : 'Compra parcial removida', detalle });
+  toast(parcial ? 'Compra parcial registrada' : 'Compra parcial removida');
+  await openSolicitud(solId);
+}
+
+// =============================================
+// ADD ITEM
+// =============================================
+async function addItemToSolicitud(solId) {
+  const nombre = prompt('Nombre del ítem:');
+  if (!nombre) return;
+  const tipo = prompt('Tipo: Frasco vidrio, Frasco plástico, Estuche, Tapa, Válvula, Etiqueta, Otro', 'Otro');
+  await sb.from('solicitud_items').insert({ solicitud_id: solId, nombre, tipo_producto: tipo });
+  await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Ítem agregado', detalle: nombre });
+  toast('Ítem agregado');
+  await openSolicitud(solId);
+}
+
+// =============================================
+// COMEX EDIT
+// =============================================
+async function editComexOP(comexId) {
+  const op = prompt('Número de OP:');
+  if (op === null) return;
+  await sb.from('comex_seguimiento').update({ op_numero: op }).eq('id', comexId);
+  toast('OP actualizado');
+  if (viewingSolicitud) await openSolicitud(viewingSolicitud);
+}
+
+async function editComex(comexId) {
+  const pago = prompt('Estado pago exterior (pendiente/procesando/pagado):', 'pendiente');
+  const packing = confirm('¿Packing list OK?');
+  const shipping = confirm('¿Shipping marks OK?');
+  const notas = prompt('Notas:');
+  await sb.from('comex_seguimiento').update({
+    pago_exterior_status: pago, packing_list_ok: packing, shipping_marks_ok: shipping, notas
+  }).eq('id', comexId);
+
+  // Sync update to Google Sheets
+  if (viewingSolicitud) {
+    try {
+      await fetch('/api/sheets-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': 'cdimex-internal-2024' },
+        body: JSON.stringify({
+          action: 'update', solicitudId: viewingSolicitud,
+          data: { pago_status: pago, packing_list: packing ? 'OK' : 'Pendiente', shipping_marks: shipping ? 'OK' : 'Pendiente', notas }
+        })
+      });
+    } catch (e) { console.warn('Sheets sync error:', e); }
+  }
+
+  toast('Seguimiento Comex actualizado');
+  if (viewingSolicitud) await openSolicitud(viewingSolicitud);
+}
+
+// =============================================
+// COMMENTS
+// =============================================
+async function addComment(solId) {
+  const texto = document.getElementById('newComment').value.trim();
+  if (!texto) return;
+  await sb.from('comentarios').insert({ solicitud_id: solId, autor_id: currentUser.id, texto });
+  await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Comentario agregado' });
+  document.getElementById('newComment').value = '';
+  toast('Comentario agregado');
+  await openSolicitud(solId);
+}
+
+// =============================================
+// EMAIL
+// =============================================
+async function sendEmail(to, subject, html) {
+  try {
+    const resp = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': 'cdimex-internal-2024' },
+      body: JSON.stringify({ to: Array.isArray(to) ? to : [to], subject: `[CDimex] ${subject}`, html: wrapEmail(html) })
+    });
+    if (!resp.ok) console.warn('Email send failed:', await resp.text());
+  } catch (e) {
+    console.warn('Email send error:', e);
+    // Fallback: open mailto
+    const emails = Array.isArray(to) ? to.join(',') : to;
+    window.open(`mailto:${emails}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(subject)}`);
+  }
+}
+
+function wrapEmail(body) {
+  return `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+    <div style="background:#1a1a2e;color:#f0c040;padding:16px 20px;border-radius:8px 8px 0 0;">
+      <h2 style="margin:0;font-size:18px;">CDimex — Marcas & Compras</h2>
+    </div>
+    <div style="padding:20px;background:#f9f9f9;border-radius:0 0 8px 8px;">${body}</div>
+    <div style="padding:8px 20px;text-align:center;"><small style="color:#999;">Sistema de gestión CDimex</small></div>
+  </div>`;
+}
+
+// =============================================
+// CLOSE MODAL
+// =============================================
+function closeModal(id) {
+  document.getElementById(id)?.remove();
+}
+
+// =============================================
+// INIT
+// =============================================
+async function main() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) {
+    await initApp(session.user);
+  }
+  // Listen for auth changes
+  sb.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_IN' && session?.user) {
+      await initApp(session.user);
+    }
+  });
+}
+main();
+</script>
+</body>
+</html>
