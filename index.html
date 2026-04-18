@@ -1539,7 +1539,9 @@ async function saveProductLeadTime(productId, value) {
 async function triggerSync() {
   toast('Sincronizando con Google Sheets...');
   try {
-    const resp = await fetch('/api/sync-sheets', { headers: { 'x-api-key': window.INTERNAL_API_KEY || '' } });
+    const { data: { session } } = await sb.auth.getSession();
+    const token = session?.access_token || '';
+    const resp = await fetch('/api/sync-sheets', { headers: { 'Authorization': 'Bearer ' + token } });
     const data = await resp.json();
     if (resp.ok) {
       toast('Sincronización completada: ' + (data.stocks?.updated || 0) + ' stocks, ' + (data.forecast?.updated || 0) + ' forecast');
