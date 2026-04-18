@@ -71,10 +71,23 @@ async function syncStockSistema(sheets, config, supabase) {
   if (rows.length < 3) return { updated: 0, skipped: 'Not enough rows in Stock Sistema' };
 
   // Row 0: "SUM de STOCK" | "DEPOSITO" | ...
-  // Row 1: "CODIGO" | dep_100 | dep_105 | ... | "TOTAL"
+  // Row 1: "CODIGO" | dep_100 | dep_105 | ... | (empty col?) | "TOTAL"
   // Row 2+: codigo | qty_dep1 | qty_dep2 | ... | total
   const headerRow = rows[1] || [];
-  const totalColIdx = headerRow.findIndex(h => String(h || '').toUpperCase().trim() === 'TOTAL');
+
+  // Find TOTAL column and deposit columns (numeric headers = deposit IDs)
+  let totalColIdx = -1;
+  const depositCols = [];
+  for (let i = 0; i < headerRow.length; i++) {
+    const h = String(headerRow[i] || '').toUpperCase().trim();
+    if (h === 'TOTAL' || h === 'TOTAL GENERAL') {
+      totalColIdx = i;
+    } else if (i > 0 && !isNaN(Number(headerRow[i]))) {
+      depositCols.push(i);
+    }
+  }
+
+  console.log(`Stock Sistema: totalCol=${totalColIdx}, depositCols=${depositCols.length}, rows=${rows.length}`);
 
   const updates = [];
   for (let r = 2; r < rows.length; r++) {
@@ -83,17 +96,20 @@ async function syncStockSistema(sheets, config, supabase) {
     if (codigoRaw == null || codigoRaw === '' || String(codigoRaw).toUpperCase() === 'TOTAL') continue;
     const codigo = String(codigoRaw).trim();
 
-    // Get total stock: use TOTAL column if available, otherwise sum all deposit columns
+    // Strategy: use TOTAL column if the row has data there, otherwise sum deposit columns
     let stockTotal = 0;
-    if (totalColIdx >= 0 && row[totalColIdx] != null) {
+    if (totalColIdx >= 0 && row.length > totalColIdx && row[totalColIdx] != null) {
       stockTotal = parseNum(row[totalColIdx]);
     } else {
-      for (let c = 1; c < row.length; c++) {
-        stockTotal += parseNum(row[c]);
+      // Sum all deposit columns
+      for (const c of depositCols) {
+        if (c < row.length && row[c] != null) {
+          stockTotal += parseNum(row[c]);
+        }
       }
     }
 
-    if (stockTotal === 0 && !descMap[codigo]) continue; // Skip zero-stock items without description
+    if (stockTotal === 0 && !descMap[codigo]) continue;
 
     const nombre = descMap[codigo] || `Producto ${codigo}`;
 
@@ -107,54 +123,38 @@ async function syncStockSistema(sheets, config, supabase) {
 
   if (updates.length === 0) return { updated: 0, skipped: 'No products found in Stock Sistema' };
 
-  // Update stock_actual for existing products by codigo (across all marcas)
-  // Also insert new products with marca='Sin asignar' if they don't exist
-  let updatedCount = 0;
-  let insertedCount = 0;
+  // Build a map of codigo → stock_actual for fast lookup
+  const stockMap = {};
+  for (const u of updates) {
+    stockMap[u.codigo] = u;
+  }
 
-  // Batch: first try to update existing records by codigo
-  const codigos = updates.map(u => u.codigo);
-
-  // Get existing products
+  // Get ALL existing products from stock_productos (with marca assigned)
   const { data: existing } = await supabase
     .from('stock_productos')
     .select('id, codigo, marca')
-    .in('codigo', codigos);
+    .neq('marca', 'Sin asignar');
 
-  const existingCodigos = new Set((existing || []).map(e => e.codigo));
+  let updatedCount = 0;
+  const matched = new Set();
 
-  // Update existing products' stock_actual
-  for (const upd of updates) {
-    if (existingCodigos.has(upd.codigo)) {
+  // Update stock_actual for existing products that match by codigo
+  for (const prod of (existing || [])) {
+    const upd = stockMap[prod.codigo];
+    if (upd) {
+      matched.add(prod.codigo);
       const { error } = await supabase
         .from('stock_productos')
         .update({ stock_actual: upd.stock_actual, fecha_sync: upd.fecha_sync })
-        .eq('codigo', upd.codigo);
+        .eq('id', prod.id);
       if (!error) updatedCount++;
     }
   }
 
-  // Insert new products (not yet in stock_productos)
-  const newProducts = updates
-    .filter(u => !existingCodigos.has(u.codigo))
-    .map(u => ({
-      codigo: u.codigo,
-      nombre: u.nombre,
-      marca: 'Sin asignar',
-      stock_actual: u.stock_actual,
-      fecha_sync: u.fecha_sync,
-    }));
+  // Don't insert "Sin asignar" products — only update existing ones with marca
+  const notMatched = updates.length - matched.size;
 
-  if (newProducts.length > 0) {
-    // Batch insert in chunks of 500
-    for (let i = 0; i < newProducts.length; i += 500) {
-      const chunk = newProducts.slice(i, i + 500);
-      const { error } = await supabase.from('stock_productos').upsert(chunk, { onConflict: 'codigo,marca' });
-      if (!error) insertedCount += chunk.length;
-    }
-  }
-
-  return { updated: updatedCount, inserted: insertedCount, total_codes: updates.length };
+  return { updated: updatedCount, matched_codes: matched.size, not_matched: notMatched, total_codes: updates.length };
 }
 
 // ─── SYNC 2: Ventas/Stock/Cobertura (planilla original) ───
@@ -331,16 +331,22 @@ export default async function handler(req, res) {
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    // Run all 3 syncs in parallel
-    const [stockSistemaResult, stockResult, forecastResult] = await Promise.allSettled([
-      syncStockSistema(sheets, config, supabase),
+    // Step 1: Sync stocks + forecast in parallel (these CREATE products with marca)
+    const [stockResult, forecastResult] = await Promise.allSettled([
       syncStocks(sheets, config, supabase),
       syncForecast(sheets, config, supabase),
     ]);
 
-    const stockSistemaRes = stockSistemaResult.status === 'fulfilled' ? stockSistemaResult.value : { error: stockSistemaResult.reason?.message };
     const stockRes = stockResult.status === 'fulfilled' ? stockResult.value : { error: stockResult.reason?.message };
     const forecastRes = forecastResult.status === 'fulfilled' ? forecastResult.value : { error: forecastResult.reason?.message };
+
+    // Step 2: THEN sync Stock Sistema (updates stock_actual on existing products by codigo)
+    let stockSistemaRes = { skipped: 'Not configured' };
+    try {
+      stockSistemaRes = await syncStockSistema(sheets, config, supabase);
+    } catch (e) {
+      stockSistemaRes = { error: e.message };
+    }
 
     await supabase.rpc('recalculate_cobertura');
 
