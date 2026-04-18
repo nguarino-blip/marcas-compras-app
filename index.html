@@ -1758,7 +1758,8 @@ async function renderAdmin(c) {
         <input type="text" id="cfgSheetIdForecast" placeholder="ID del Google Sheet de Forecast" style="font-size:13px;"></div>
         <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Nombre de hoja (forecast)</label>
         <input type="text" id="cfgSheetNameForecast" value="Resumen Gral." style="font-size:13px;"></div>
-        <button class="btn-gold" onclick="saveConfigSheets()">💾 Guardar configuración</button>
+        <button class="btn-gold" id="btnSaveSheets" onclick="saveConfigSheets(this)">💾 Guardar configuración</button>
+        <span id="sheetsStatus" style="margin-left:8px;font-size:12px;"></span>
       </div>
     </div>
   `;
@@ -1848,9 +1849,12 @@ async function removeProveedorHabitual(marca, prov) {
 }
 
 // Admin: Save Google Sheets config
-async function saveConfigSheets() {
-  const btn = event?.target;
+async function saveConfigSheets(btn) {
+  const status = document.getElementById('sheetsStatus');
   if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Guardando...';
+  if (status) status.style.color = 'var(--gold)';
+
   try {
     const sheetIdStocks = document.getElementById('cfgSheetIdStocks')?.value?.trim() || null;
     const sheetNameStocks = document.getElementById('cfgSheetNameStocks')?.value?.trim() || 'Ventas stock cierre cobertura';
@@ -1859,46 +1863,49 @@ async function saveConfigSheets() {
 
     if (!sheetIdStocks && !sheetIdForecast) {
       toast('Ingresá al menos un Sheet ID', true);
+      if (status) status.textContent = '⚠️ Falta Sheet ID';
+      if (status) status.style.color = 'var(--red)';
       if (btn) btn.disabled = false;
       return;
     }
 
-    // Check if row exists
-    const { data: existing } = await sb.from('config_sheets').select('id').eq('id', 1).maybeSingle();
+    const payload = {
+      id: 1,
+      sheet_id_stocks: sheetIdStocks,
+      sheet_name_stocks: sheetNameStocks,
+      sheet_id_forecast: sheetIdForecast,
+      sheet_name_forecast: sheetNameForecast,
+      sync_enabled: true,
+    };
 
-    let error;
-    if (existing) {
-      // Update
-      const res = await sb.from('config_sheets').update({
+    // Try insert first (if table is empty), then update if it already exists
+    const { error: insErr } = await sb.from('config_sheets').insert(payload);
+    if (insErr) {
+      // Row probably exists already, try update
+      const { error: updErr } = await sb.from('config_sheets').update({
         sheet_id_stocks: sheetIdStocks,
         sheet_name_stocks: sheetNameStocks,
         sheet_id_forecast: sheetIdForecast,
         sheet_name_forecast: sheetNameForecast,
         sync_enabled: true,
       }).eq('id', 1);
-      error = res.error;
-    } else {
-      // Insert
-      const res = await sb.from('config_sheets').insert({
-        id: 1,
-        sheet_id_stocks: sheetIdStocks,
-        sheet_name_stocks: sheetNameStocks,
-        sheet_id_forecast: sheetIdForecast,
-        sheet_name_forecast: sheetNameForecast,
-        sync_enabled: true,
-      });
-      error = res.error;
+
+      if (updErr) {
+        console.error('saveConfigSheets errors:', { insErr, updErr });
+        const msg = updErr.message || insErr.message || 'Error desconocido';
+        toast('Error guardando: ' + msg, true);
+        if (status) { status.textContent = '❌ ' + msg; status.style.color = 'var(--red)'; }
+        if (btn) btn.disabled = false;
+        return;
+      }
     }
 
-    if (error) {
-      console.error('saveConfigSheets error:', error);
-      toast('Error: ' + error.message + ' (code: ' + (error.code||'') + ')', true);
-    } else {
-      toast('Configuración de Sheets guardada ✓');
-    }
+    toast('Configuración de Sheets guardada ✓');
+    if (status) { status.textContent = '✅ Guardado'; status.style.color = 'var(--green)'; }
   } catch (e) {
     console.error('saveConfigSheets exception:', e);
     toast('Error: ' + e.message, true);
+    if (status) { status.textContent = '❌ ' + e.message; status.style.color = 'var(--red)'; }
   }
   if (btn) btn.disabled = false;
 }
