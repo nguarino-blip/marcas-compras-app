@@ -196,12 +196,25 @@ async function syncForecast(sheets, config, supabase) {
 }
 
 export default async function handler(req, res) {
-  // Auth: cron secret or internal API key
-  if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
-    if (req.headers['x-api-key'] !== process.env.INTERNAL_API_KEY) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+  // Auth: cron secret, internal API key, or Supabase user token
+  let authorized = false;
+  const authHeader = req.headers.authorization || '';
+
+  // 1. Cron secret
+  if (authHeader === `Bearer ${process.env.CRON_SECRET}`) authorized = true;
+  // 2. Internal API key
+  if (!authorized && req.headers['x-api-key'] === process.env.INTERNAL_API_KEY) authorized = true;
+  // 3. Supabase user token (from frontend)
+  if (!authorized && authHeader.startsWith('Bearer ') && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    try {
+      const sb = getSupabase();
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user }, error } = await sb.auth.getUser(token);
+      if (user && !error) authorized = true;
+    } catch (_) {}
   }
+
+  if (!authorized) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
     const supabase = getSupabase();
