@@ -2,11 +2,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-const resend = new Resend(process.env.RESEND_API_KEY);
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) throw new Error(`Missing Supabase env vars. URL=${!!url}, KEY=${!!key}`);
+  return createClient(url, key);
+}
+
 const EMAIL_FROM = process.env.EMAIL_FROM || 'CDimex Compras <noreply@cdimex.com.ar>';
 
 export default async function handler(req, res) {
@@ -17,6 +19,8 @@ export default async function handler(req, res) {
   }
 
   try {
+    const supabase = getSupabase();
+    const resend = new Resend(process.env.RESEND_API_KEY);
     const { data: alertData, error } = await supabase.rpc('get_stock_alerts_data');
     if (error) throw error;
 
