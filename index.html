@@ -1085,12 +1085,12 @@ async function renderMetricas(c) {
   let metrics = null;
   let alerts = null;
   try {
-    const [mRes, aRes] = await Promise.all([
+    const [mRes, aRes] = await Promise.allSettled([
       sb.rpc('get_metrics_data'),
       sb.rpc('get_smart_alerts')
     ]);
-    metrics = mRes.data;
-    alerts = aRes.data;
+    if (mRes.status === 'fulfilled' && !mRes.value?.error) metrics = mRes.value?.data;
+    if (aRes.status === 'fulfilled' && !aRes.value?.error) alerts = aRes.value?.data;
   } catch (e) {
     console.warn('Metrics RPC failed, computing from local data:', e);
   }
@@ -1130,9 +1130,9 @@ async function renderMetricas(c) {
   const alertInsp = alerts?.inspeccion_vencida || [];
   const alertPasos = alerts?.paso_excede_promedio || [];
 
-  const maxMarca = Math.max(...porMarca.map(m => m.total), 1);
-  const maxTipo = Math.max(...porTipo.map(t => t.total), 1);
-  const maxCuello = Math.max(...cuellos.map(c => Math.abs(c.dias_promedio_retraso)), 1);
+  const maxMarca = porMarca.length ? Math.max(...porMarca.map(m => m.total || 0), 1) : 1;
+  const maxTipo = porTipo.length ? Math.max(...porTipo.map(t => t.total || 0), 1) : 1;
+  const maxCuello = cuellos.length ? Math.max(...cuellos.map(c => Math.abs(c.dias_promedio_retraso || 0)), 1) : 1;
 
   c.innerHTML = `
     <!-- ALERTAS INTELIGENTES -->
@@ -1271,7 +1271,7 @@ async function loadStockData() {
 
 async function renderStock(c) {
   c.innerHTML = '<div style="text-align:center;padding:40px;color:var(--txt2);">Cargando datos de stock...</div>';
-  await loadStockData();
+  try { await loadStockData(); } catch(e) { console.warn('loadStockData error:', e); }
 
   const resumen = stockData?.resumen || {};
   const alertas = stockData?.alertas_quiebre || [];
@@ -1849,30 +1849,58 @@ async function removeProveedorHabitual(marca, prov) {
 
 // Admin: Save Google Sheets config
 async function saveConfigSheets() {
+  const btn = event?.target;
+  if (btn) btn.disabled = true;
   try {
-    const cfg = {
-      id: 1,
-      sheet_id_stocks: document.getElementById('cfgSheetIdStocks')?.value?.trim() || null,
-      sheet_name_stocks: document.getElementById('cfgSheetNameStocks')?.value?.trim() || 'Ventas stock cierre cobertura',
-      sheet_id_forecast: document.getElementById('cfgSheetIdForecast')?.value?.trim() || null,
-      sheet_name_forecast: document.getElementById('cfgSheetNameForecast')?.value?.trim() || 'Resumen Gral.',
-      sync_enabled: true,
-    };
-    // Try upsert first
-    const { error } = await sb.from('config_sheets').upsert(cfg, { onConflict: 'id' });
-    if (error) {
-      // If RLS blocks, try insert then update
-      console.warn('Upsert failed, trying insert:', error.message);
-      const { error: insErr } = await sb.from('config_sheets').insert(cfg);
-      if (insErr) {
-        const { error: updErr } = await sb.from('config_sheets').update(cfg).eq('id', 1);
-        if (updErr) { toast('Error guardando config: ' + updErr.message, true); return; }
-      }
+    const sheetIdStocks = document.getElementById('cfgSheetIdStocks')?.value?.trim() || null;
+    const sheetNameStocks = document.getElementById('cfgSheetNameStocks')?.value?.trim() || 'Ventas stock cierre cobertura';
+    const sheetIdForecast = document.getElementById('cfgSheetIdForecast')?.value?.trim() || null;
+    const sheetNameForecast = document.getElementById('cfgSheetNameForecast')?.value?.trim() || 'Resumen Gral.';
+
+    if (!sheetIdStocks && !sheetIdForecast) {
+      toast('Ingresá al menos un Sheet ID', true);
+      if (btn) btn.disabled = false;
+      return;
     }
-    toast('Configuración de Sheets guardada ✓');
+
+    // Check if row exists
+    const { data: existing } = await sb.from('config_sheets').select('id').eq('id', 1).maybeSingle();
+
+    let error;
+    if (existing) {
+      // Update
+      const res = await sb.from('config_sheets').update({
+        sheet_id_stocks: sheetIdStocks,
+        sheet_name_stocks: sheetNameStocks,
+        sheet_id_forecast: sheetIdForecast,
+        sheet_name_forecast: sheetNameForecast,
+        sync_enabled: true,
+      }).eq('id', 1);
+      error = res.error;
+    } else {
+      // Insert
+      const res = await sb.from('config_sheets').insert({
+        id: 1,
+        sheet_id_stocks: sheetIdStocks,
+        sheet_name_stocks: sheetNameStocks,
+        sheet_id_forecast: sheetIdForecast,
+        sheet_name_forecast: sheetNameForecast,
+        sync_enabled: true,
+      });
+      error = res.error;
+    }
+
+    if (error) {
+      console.error('saveConfigSheets error:', error);
+      toast('Error: ' + error.message + ' (code: ' + (error.code||'') + ')', true);
+    } else {
+      toast('Configuración de Sheets guardada ✓');
+    }
   } catch (e) {
+    console.error('saveConfigSheets exception:', e);
     toast('Error: ' + e.message, true);
   }
+  if (btn) btn.disabled = false;
 }
 
 // =============================================
