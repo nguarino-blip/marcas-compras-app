@@ -2,14 +2,21 @@
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+let _supabase = null;
+function getSupabase() {
+  if (!_supabase) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+    if (!url || !key) throw new Error(`Missing Supabase env vars. URL=${!!url}, KEY=${!!key}`);
+    _supabase = createClient(url, key);
+  }
+  return _supabase;
+}
 
 function getAuth() {
-  // Service account credentials from env (JSON string)
-  const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}');
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  if (!raw) throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_JSON env var');
+  const creds = JSON.parse(raw);
   return new google.auth.GoogleAuth({
     credentials: creds,
     scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
@@ -31,7 +38,7 @@ function getCurrentMonthCol() {
   return now.getMonth(); // 0-indexed
 }
 
-async function syncStocks(sheets, config) {
+async function syncStocks(sheets, config, supabase) {
   if (!config.sheet_id_stocks) return { updated: 0, skipped: 'No sheet_id_stocks configured' };
 
   const res = await sheets.spreadsheets.values.get({
@@ -112,7 +119,7 @@ async function syncStocks(sheets, config) {
   return { updated: productos.length };
 }
 
-async function syncForecast(sheets, config) {
+async function syncForecast(sheets, config, supabase) {
   if (!config.sheet_id_forecast) return { updated: 0, skipped: 'No sheet_id_forecast configured' };
 
   const res = await sheets.spreadsheets.values.get({
@@ -197,6 +204,8 @@ export default async function handler(req, res) {
   }
 
   try {
+    const supabase = getSupabase();
+
     // Get config
     const { data: configArr } = await supabase.from('config_sheets').select('*').eq('id', 1);
     const config = configArr?.[0];
@@ -208,8 +217,8 @@ export default async function handler(req, res) {
     const sheets = google.sheets({ version: 'v4', auth });
 
     const [stockResult, forecastResult] = await Promise.allSettled([
-      syncStocks(sheets, config),
-      syncForecast(sheets, config),
+      syncStocks(sheets, config, supabase),
+      syncForecast(sheets, config, supabase),
     ]);
 
     const stockRes = stockResult.status === 'fulfilled' ? stockResult.value : { error: stockResult.reason?.message };
