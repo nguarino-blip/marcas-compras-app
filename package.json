@@ -1,10 +1,10 @@
 {
   "name": "marcas-compras-app",
-  "version": "2.0.0",
+  "version": "1.0.0",
   "private": true,
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.0",
-    "googleapis": "^140.0.0",
-    "resend": "^4.0.0"
+    "@supabase/supabase-js": "^2.49.1",
+    "googleapis": "^144.0.0",
+    "resend": "^4.1.2"
   }
 }
