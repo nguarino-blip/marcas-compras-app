@@ -253,6 +253,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);}
       <div class="tab" data-tab="aprobaciones" onclick="switchTab('aprobaciones')">Aprobaciones</div>
       <div class="tab" data-tab="comex" onclick="switchTab('comex')">Comex</div>
       <div class="tab" data-tab="metricas" onclick="switchTab('metricas')">Métricas</div>
+      <div class="tab hidden" data-tab="stock" onclick="switchTab('stock')">📦 Stock</div>
       <div class="tab hidden" data-tab="admin" onclick="switchTab('admin')">Admin</div>
     </div>
     <div id="tabContent"></div>
@@ -522,6 +523,13 @@ async function initApp(user) {
       comexTab.classList.add('hidden');
     }
   }
+  // Stock tab for compras and admin
+  const stockTab = document.querySelector('[data-tab="stock"]');
+  if (stockTab) {
+    if (['compras','admin'].includes(profile.role)) {
+      stockTab.classList.remove('hidden');
+    }
+  }
   // Admin tab only for admin role
   const adminTab = document.querySelector('[data-tab="admin"]');
   if (adminTab) {
@@ -718,6 +726,7 @@ function switchTab(tab) {
     case 'aprobaciones': renderAprobaciones(c); break;
     case 'comex': renderComex(c); break;
     case 'metricas': renderMetricas(c); break;
+    case 'stock': renderStock(c); break;
     case 'admin': renderAdmin(c); break;
   }
 }
@@ -1236,6 +1245,406 @@ async function renderMetricas(c) {
 }
 
 // =============================================
+// STOCK & PLANIFICACIÓN
+// =============================================
+let stockData = null;
+let stockProductos = [];
+let configMarcasData = [];
+
+async function loadStockData() {
+  const [alertRes, prodRes, cfgRes] = await Promise.allSettled([
+    sb.rpc('get_stock_alerts_data'),
+    sb.from('stock_productos').select('*').order('marca').order('cobertura_meses', { ascending: true }),
+    sb.from('config_marcas').select('*').order('marca'),
+  ]);
+  stockData = alertRes.status === 'fulfilled' ? alertRes.value?.data : null;
+  stockProductos = prodRes.status === 'fulfilled' ? (prodRes.value?.data || []) : [];
+  configMarcasData = cfgRes.status === 'fulfilled' ? (cfgRes.value?.data || []) : [];
+}
+
+async function renderStock(c) {
+  c.innerHTML = '<div style="text-align:center;padding:40px;color:var(--txt2);">Cargando datos de stock...</div>';
+  await loadStockData();
+
+  const resumen = stockData?.resumen || {};
+  const alertas = stockData?.alertas_quiebre || [];
+  const porMarca = stockData?.por_marca || [];
+  const fechaSync = stockData?.fecha_sync ? new Date(stockData.fecha_sync).toLocaleString('es-AR') : 'Nunca';
+  const hayDatos = stockProductos.length > 0;
+
+  const riskColor = (nivel) => {
+    switch(nivel) {
+      case 'SIN STOCK': return 'var(--red)';
+      case 'CRITICO': return 'var(--red)';
+      case 'ALERTA': return 'var(--orange)';
+      case 'ATENCIÓN': return 'var(--gold)';
+      default: return 'var(--green)';
+    }
+  };
+  const riskBg = (nivel) => {
+    switch(nivel) {
+      case 'SIN STOCK': return 'rgba(239,68,68,.15)';
+      case 'CRITICO': return 'rgba(239,68,68,.1)';
+      case 'ALERTA': return 'rgba(249,115,22,.1)';
+      case 'ATENCIÓN': return 'rgba(240,192,64,.1)';
+      default: return 'rgba(34,197,94,.1)';
+    }
+  };
+
+  c.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h2 style="color:var(--gold);font-size:20px;">📦 Stock & Planificación de Compras</h2>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="font-size:11px;color:var(--txt2);">Última sync: ${fechaSync}</span>
+        <button class="btn-outline btn-sm" onclick="triggerSync()">🔄 Sincronizar</button>
+      </div>
+    </div>
+
+    ${!hayDatos ? `
+      <div class="card" style="text-align:center;padding:40px;">
+        <h3 style="color:var(--gold);margin-bottom:12px;">📋 Configuración Inicial</h3>
+        <p style="color:var(--txt2);margin-bottom:16px;">Para activar el módulo de Stock necesitás configurar la conexión con Google Sheets.</p>
+        <div style="text-align:left;max-width:500px;margin:0 auto;background:var(--bg3);padding:20px;border-radius:8px;">
+          <p style="margin-bottom:12px;font-size:14px;"><strong>Pasos:</strong></p>
+          <p style="font-size:13px;color:var(--txt2);margin-bottom:8px;">1. Crear una Service Account en Google Cloud Console</p>
+          <p style="font-size:13px;color:var(--txt2);margin-bottom:8px;">2. Compartir las Google Sheets con el email de la Service Account</p>
+          <p style="font-size:13px;color:var(--txt2);margin-bottom:8px;">3. Configurar los IDs de las hojas en el panel Admin → Configuración Sheets</p>
+          <p style="font-size:13px;color:var(--txt2);margin-bottom:8px;">4. Agregar GOOGLE_SERVICE_ACCOUNT_JSON como variable en Vercel</p>
+        </div>
+        <div style="margin-top:20px;">
+          <h4 style="color:var(--txt);margin-bottom:8px;">Mientras tanto, podés cargar datos manualmente:</h4>
+          <button class="btn-gold" onclick="showManualStockUpload()">📤 Cargar Excel de Stock</button>
+        </div>
+      </div>
+    ` : `
+      <!-- KPIs -->
+      <div class="kpi-row">
+        <div class="kpi"><div class="num">${resumen.total_productos || 0}</div><div class="label">Productos</div></div>
+        <div class="kpi"><div class="num" style="color:var(--red)">${resumen.sin_stock || 0}</div><div class="label">Sin Stock</div></div>
+        <div class="kpi"><div class="num" style="color:var(--orange)">${resumen.en_riesgo || 0}</div><div class="label">En Riesgo</div></div>
+        <div class="kpi"><div class="num" style="color:var(--green)">${resumen.cobertura_promedio || 0}m</div><div class="label">Cobertura Promedio</div></div>
+      </div>
+
+      <!-- Filter bar -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+        <select id="stockFilterMarca" onchange="filterStockTable()" style="width:auto;min-width:150px;">
+          <option value="">Todas las marcas</option>
+          ${[...new Set(stockProductos.map(p => p.marca))].sort().map(m => `<option value="${m}">${m}</option>`).join('')}
+        </select>
+        <select id="stockFilterRiesgo" onchange="filterStockTable()" style="width:auto;min-width:150px;">
+          <option value="">Todos los niveles</option>
+          <option value="critico">🔴 Crítico / Sin Stock</option>
+          <option value="alerta">🟠 Alerta</option>
+          <option value="atencion">🟡 Atención</option>
+          <option value="ok">🟢 OK</option>
+        </select>
+        <input type="text" id="stockSearch" placeholder="Buscar producto..." oninput="filterStockTable()" style="width:auto;min-width:200px;">
+      </div>
+
+      <!-- Por Marca cards -->
+      ${porMarca && porMarca.length > 0 ? `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+        ${porMarca.map(m => `
+          <div class="card" style="flex:1;min-width:150px;padding:12px;cursor:pointer;" onclick="document.getElementById('stockFilterMarca').value='${m.marca}';filterStockTable();">
+            <div style="font-size:12px;color:var(--txt2);margin-bottom:4px;">${m.marca}</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:16px;font-weight:bold;color:${m.en_riesgo > 0 ? 'var(--red)' : 'var(--green)'}">${m.en_riesgo || 0}</span>
+              <span style="font-size:11px;color:var(--txt2);">${m.cobertura_promedio || 0}m avg</span>
+            </div>
+            <div style="font-size:10px;color:var(--txt2);margin-top:2px;">LT: ${m.lead_time}m • ${m.total_productos} prod</div>
+          </div>
+        `).join('')}
+      </div>
+      ` : ''}
+
+      <!-- Stock Table -->
+      <div class="card" style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;" id="stockTable">
+          <thead>
+            <tr style="border-bottom:2px solid var(--border);">
+              <th style="padding:8px;text-align:left;color:var(--txt2);">Código</th>
+              <th style="padding:8px;text-align:left;color:var(--txt2);">Producto</th>
+              <th style="padding:8px;text-align:left;color:var(--txt2);">Marca</th>
+              <th style="padding:8px;text-align:right;color:var(--txt2);">Stock</th>
+              <th style="padding:8px;text-align:right;color:var(--txt2);">Vta/mes</th>
+              <th style="padding:8px;text-align:right;color:var(--txt2);">Forecast</th>
+              <th style="padding:8px;text-align:right;color:var(--txt2);">Cobertura</th>
+              <th style="padding:8px;text-align:center;color:var(--txt2);">Lead Time</th>
+              <th style="padding:8px;text-align:center;color:var(--txt2);">Nivel</th>
+              <th style="padding:8px;text-align:right;color:var(--txt2);">Compra sugerida</th>
+              <th style="padding:8px;text-align:center;color:var(--txt2);">Acción</th>
+            </tr>
+          </thead>
+          <tbody id="stockTableBody">
+          </tbody>
+        </table>
+      </div>
+    `}
+
+    <!-- Lead Time Config -->
+    <div class="card" style="margin-top:16px;">
+      <h3 style="margin-bottom:12px;">⚙️ Lead Time Default por Marca y Umbral de Alerta</h3>
+      <p style="color:var(--txt2);font-size:12px;margin-bottom:12px;">Lead time default para insumos de cada marca (se puede sobreescribir por insumo en la tabla de arriba). El umbral de alerta define cuándo un producto pasa a nivel "Alerta".</p>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tr style="border-bottom:1px solid var(--border);">
+          <th style="padding:8px;text-align:left;color:var(--txt2);">Marca</th>
+          <th style="padding:8px;text-align:center;color:var(--txt2);">Lead Time (meses)</th>
+          <th style="padding:8px;text-align:center;color:var(--txt2);">Umbral Alerta (meses)</th>
+          <th style="padding:8px;text-align:center;color:var(--txt2);">Acción</th>
+        </tr>
+        ${configMarcasData.map(cm => `
+          <tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:8px;">${cm.marca}</td>
+            <td style="padding:8px;text-align:center;">
+              <input type="number" value="${cm.lead_time_meses}" min="1" max="24" step="0.5" style="width:70px;text-align:center;" id="lt_${cm.id}">
+            </td>
+            <td style="padding:8px;text-align:center;">
+              <input type="number" value="${cm.umbral_alerta_meses}" min="0.5" max="12" step="0.5" style="width:70px;text-align:center;" id="ua_${cm.id}">
+            </td>
+            <td style="padding:8px;text-align:center;">
+              <button class="btn-outline btn-sm" onclick="saveConfigMarca('${cm.id}')">Guardar</button>
+            </td>
+          </tr>
+        `).join('')}
+      </table>
+    </div>
+  `;
+
+  if (hayDatos) filterStockTable();
+}
+
+function getProductLeadTime(p) {
+  if (p.lead_time_meses) return p.lead_time_meses;
+  const cm = configMarcasData.find(c => c.marca === p.marca);
+  return cm?.lead_time_meses || 3;
+}
+
+function getStockNivel(p) {
+  const cm = configMarcasData.find(c => c.marca === p.marca);
+  const umbral = cm?.umbral_alerta_meses || 2;
+  const lt = getProductLeadTime(p);
+  if (p.stock_actual <= 0) return 'SIN STOCK';
+  if (p.cobertura_meses <= 1) return 'CRITICO';
+  if (p.cobertura_meses <= umbral) return 'ALERTA';
+  if (p.cobertura_meses <= lt) return 'ATENCIÓN';
+  return 'OK';
+}
+
+function filterStockTable() {
+  const marca = document.getElementById('stockFilterMarca')?.value || '';
+  const riesgo = document.getElementById('stockFilterRiesgo')?.value || '';
+  const search = (document.getElementById('stockSearch')?.value || '').toLowerCase();
+
+  let filtered = stockProductos;
+  if (marca) filtered = filtered.filter(p => p.marca === marca);
+  if (search) filtered = filtered.filter(p => p.nombre.toLowerCase().includes(search) || p.codigo.toLowerCase().includes(search));
+
+  // Add nivel to each
+  filtered = filtered.map(p => ({ ...p, nivel: getStockNivel(p) }));
+
+  if (riesgo === 'critico') filtered = filtered.filter(p => p.nivel === 'SIN STOCK' || p.nivel === 'CRITICO');
+  else if (riesgo === 'alerta') filtered = filtered.filter(p => p.nivel === 'ALERTA');
+  else if (riesgo === 'atencion') filtered = filtered.filter(p => p.nivel === 'ATENCIÓN');
+  else if (riesgo === 'ok') filtered = filtered.filter(p => p.nivel === 'OK');
+
+  const riskColor = (nivel) => {
+    switch(nivel) {
+      case 'SIN STOCK': return 'var(--red)';
+      case 'CRITICO': return 'var(--red)';
+      case 'ALERTA': return 'var(--orange)';
+      case 'ATENCIÓN': return 'var(--gold)';
+      default: return 'var(--green)';
+    }
+  };
+  const riskBg = (nivel) => {
+    switch(nivel) {
+      case 'SIN STOCK': return 'rgba(239,68,68,.15)';
+      case 'CRITICO': return 'rgba(239,68,68,.1)';
+      case 'ALERTA': return 'rgba(249,115,22,.1)';
+      case 'ATENCIÓN': return 'rgba(240,192,64,.1)';
+      default: return 'transparent';
+    }
+  };
+
+  const tbody = document.getElementById('stockTableBody');
+  if (!tbody) return;
+
+  tbody.innerHTML = filtered.slice(0, 200).map(p => {
+    const cm = configMarcasData.find(c => c.marca === p.marca);
+    const lt = cm?.lead_time_meses || 3;
+    const demanda = p.forecast_proximo_mes || p.venta_mensual_avg;
+    const compraSugerida = Math.max(0, Math.round(lt * demanda - p.stock_actual));
+
+    const ltDisplay = p.lead_time_meses ? `${p.lead_time_meses}m` : `${lt}m <span style="font-size:9px;color:var(--txt2);">(marca)</span>`;
+
+    return `<tr style="border-bottom:1px solid var(--border);background:${riskBg(p.nivel)};">
+      <td style="padding:8px;font-family:monospace;font-size:12px;">${p.codigo}</td>
+      <td style="padding:8px;">${p.nombre}</td>
+      <td style="padding:8px;font-size:12px;">${p.marca}</td>
+      <td style="padding:8px;text-align:right;font-weight:bold;">${Math.round(p.stock_actual).toLocaleString('es-AR')}</td>
+      <td style="padding:8px;text-align:right;">${Math.round(p.venta_mensual_avg).toLocaleString('es-AR')}</td>
+      <td style="padding:8px;text-align:right;">${p.forecast_proximo_mes ? Math.round(p.forecast_proximo_mes).toLocaleString('es-AR') : '-'}</td>
+      <td style="padding:8px;text-align:right;font-weight:bold;color:${riskColor(p.nivel)};">${p.cobertura_meses}m</td>
+      <td style="padding:8px;text-align:center;">
+        <input type="number" value="${lt}" min="0.5" max="24" step="0.5" style="width:55px;text-align:center;font-size:11px;padding:2px 4px;"
+          onchange="saveProductLeadTime('${p.id}',this.value)" title="Lead time de este insumo (meses)">
+      </td>
+      <td style="padding:8px;text-align:center;">
+        <span style="background:${riskBg(p.nivel)};color:${riskColor(p.nivel)};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:bold;">${p.nivel}</span>
+      </td>
+      <td style="padding:8px;text-align:right;font-weight:bold;">${compraSugerida > 0 ? compraSugerida.toLocaleString('es-AR') : '-'}</td>
+      <td style="padding:8px;text-align:center;">
+        ${p.nivel !== 'OK' ? `<button class="btn-gold btn-sm" onclick="crearSolicitudDesdeStock('${p.codigo}','${p.marca}',${compraSugerida})">Crear OC</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--txt2);">No hay productos que coincidan con los filtros</td></tr>';
+  }
+  if (filtered.length > 200) {
+    tbody.innerHTML += `<tr><td colspan="11" style="padding:8px;text-align:center;color:var(--txt2);font-size:12px;">Mostrando 200 de ${filtered.length} productos. Usá los filtros para acotar.</td></tr>`;
+  }
+}
+
+async function saveConfigMarca(id) {
+  const lt = parseFloat(document.getElementById('lt_' + id)?.value);
+  const ua = parseFloat(document.getElementById('ua_' + id)?.value);
+  if (isNaN(lt) || isNaN(ua)) { toast('Valores inválidos', true); return; }
+  const { error } = await sb.from('config_marcas').update({ lead_time_meses: lt, umbral_alerta_meses: ua, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error) { toast('Error: ' + error.message, true); return; }
+  toast('Configuración guardada');
+  await renderStock(document.getElementById('tabContent'));
+}
+
+async function saveProductLeadTime(productId, value) {
+  const lt = parseFloat(value);
+  if (isNaN(lt) || lt <= 0) { toast('Lead time inválido', true); return; }
+  const { error } = await sb.from('stock_productos').update({ lead_time_meses: lt }).eq('id', productId);
+  if (error) { toast('Error: ' + error.message, true); return; }
+  // Update local cache
+  const prod = stockProductos.find(p => p.id === productId);
+  if (prod) prod.lead_time_meses = lt;
+  toast(`Lead time actualizado: ${lt} meses`);
+  filterStockTable(); // Re-render with new nivel
+}
+
+async function triggerSync() {
+  toast('Sincronizando con Google Sheets...');
+  try {
+    const resp = await fetch('/api/sync-sheets', { headers: { 'x-api-key': window.INTERNAL_API_KEY || '' } });
+    const data = await resp.json();
+    if (resp.ok) {
+      toast('Sincronización completada: ' + (data.stocks?.updated || 0) + ' stocks, ' + (data.forecast?.updated || 0) + ' forecast');
+      await renderStock(document.getElementById('tabContent'));
+    } else {
+      toast('Error de sync: ' + (data.error || 'desconocido'), true);
+    }
+  } catch (e) {
+    toast('Error de conexión: ' + e.message, true);
+  }
+}
+
+function crearSolicitudDesdeStock(codigo, marca, cantidad) {
+  // Switch to solicitudes tab and pre-fill form
+  switchTab('solicitudes');
+  setTimeout(() => {
+    // Try to open "new" form and pre-fill
+    const btnNew = document.querySelector('[onclick*="showNewSolicitud"]') || document.querySelector('.btn-gold');
+    if (btnNew) btnNew.click();
+    setTimeout(() => {
+      const marcaSel = document.getElementById('solMarca');
+      if (marcaSel) marcaSel.value = marca;
+      const tipoSel = document.getElementById('solTipo');
+      if (tipoSel) tipoSel.value = 'Compra regular';
+      const descTA = document.getElementById('solDescripcion') || document.getElementById('solNombre');
+      if (descTA) descTA.value = `Compra sugerida por alerta de stock — Código: ${codigo}, Marca: ${marca}, Cantidad sugerida: ${cantidad}`;
+      toast(`Formulario pre-cargado con datos de stock para ${codigo}`);
+    }, 300);
+  }, 200);
+}
+
+async function showManualStockUpload() {
+  const c = document.getElementById('tabContent');
+  c.innerHTML = `
+    <div class="card" style="max-width:600px;margin:0 auto;">
+      <h3 style="color:var(--gold);margin-bottom:16px;">📤 Carga Manual de Datos de Stock</h3>
+      <p style="color:var(--txt2);font-size:13px;margin-bottom:16px;">
+        Subí un archivo Excel (.xlsx) con las columnas: <strong>Código, Nombre, Marca, Stock Actual, Venta Mensual</strong>.
+        La primera fila debe ser el encabezado.
+      </p>
+      <input type="file" id="stockFileInput" accept=".xlsx,.xls,.csv" style="margin-bottom:16px;">
+      <div style="display:flex;gap:8px;">
+        <button class="btn-gold" onclick="processStockFile()">Procesar archivo</button>
+        <button class="btn-outline" onclick="renderStock(document.getElementById('tabContent'))">Cancelar</button>
+      </div>
+      <div id="stockUploadResult" style="margin-top:16px;"></div>
+    </div>
+  `;
+}
+
+async function processStockFile() {
+  const fileInput = document.getElementById('stockFileInput');
+  if (!fileInput?.files?.length) { toast('Seleccioná un archivo', true); return; }
+
+  const file = fileInput.files[0];
+  const resultDiv = document.getElementById('stockUploadResult');
+  resultDiv.innerHTML = '<p style="color:var(--txt2);">Procesando...</p>';
+
+  try {
+    // Read file as CSV or use basic parsing
+    const text = await file.text();
+    const lines = text.split('\n').filter(l => l.trim());
+    if (lines.length < 2) { resultDiv.innerHTML = '<p style="color:var(--red);">Archivo vacío o sin datos</p>'; return; }
+
+    const headers = lines[0].split(',').map(h => h.trim().toUpperCase());
+    const iCodigo = headers.findIndex(h => h.includes('CODIGO') || h.includes('COD') || h.includes('SKU'));
+    const iNombre = headers.findIndex(h => h.includes('NOMBRE') || h.includes('PRODUCTO') || h.includes('DESC'));
+    const iMarca = headers.findIndex(h => h.includes('MARCA') || h.includes('BRAND'));
+    const iStock = headers.findIndex(h => h.includes('STOCK') || h.includes('INVENTARIO'));
+    const iVenta = headers.findIndex(h => h.includes('VENTA') || h.includes('VTA') || h.includes('DEMANDA'));
+
+    if (iCodigo < 0 || iMarca < 0) {
+      resultDiv.innerHTML = '<p style="color:var(--red);">No se encontraron las columnas requeridas (Código, Marca)</p>';
+      return;
+    }
+
+    const productos = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = lines[i].split(',').map(c => c.trim());
+      const codigo = cols[iCodigo];
+      const marca = cols[iMarca];
+      if (!codigo || !marca) continue;
+      const stock = parseFloat((cols[iStock] || '0').replace(/[^0-9.\-]/g, '')) || 0;
+      const venta = parseFloat((cols[iVenta] || '0').replace(/[^0-9.\-]/g, '')) || 0;
+
+      productos.push({
+        codigo, marca,
+        nombre: cols[iNombre] || codigo,
+        stock_actual: stock,
+        venta_mensual_avg: venta,
+        cobertura_meses: venta > 0 ? Math.round((stock / venta) * 10) / 10 : 99,
+        fecha_sync: new Date().toISOString(),
+      });
+    }
+
+    if (productos.length === 0) {
+      resultDiv.innerHTML = '<p style="color:var(--red);">No se encontraron productos válidos</p>';
+      return;
+    }
+
+    const { error } = await sb.from('stock_productos').upsert(productos, { onConflict: 'codigo,marca' });
+    if (error) throw error;
+
+    resultDiv.innerHTML = `<p style="color:var(--green);">✅ ${productos.length} productos cargados correctamente</p>`;
+    toast(`${productos.length} productos de stock cargados`);
+    setTimeout(() => renderStock(document.getElementById('tabContent')), 1500);
+  } catch (e) {
+    resultDiv.innerHTML = `<p style="color:var(--red);">Error: ${e.message}</p>`;
+  }
+}
+
+// =============================================
 // ADMIN TAB
 // =============================================
 async function renderAdmin(c) {
@@ -1328,7 +1737,33 @@ async function renderAdmin(c) {
         </tr>`).join('')}
       </table>
     </div>
+
+    <!-- CONFIGURACIÓN GOOGLE SHEETS -->
+    <div class="section">
+      <h3>📊 Configuración Google Sheets (Stock)</h3>
+      <p style="color:var(--txt2);font-size:13px;margin-bottom:12px;">Configurá la conexión con tus Google Sheets de Stock y Forecast para sincronización automática.</p>
+      <div id="adminSheetsConfig" style="max-width:600px;">
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Sheet ID - Resumen Ejecutivo Stocks</label>
+        <input type="text" id="cfgSheetIdStocks" placeholder="ID del Google Sheet (ej: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms)" style="font-size:13px;"></div>
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Nombre de hoja (stocks)</label>
+        <input type="text" id="cfgSheetNameStocks" value="Ventas stock cierre cobertura" style="font-size:13px;"></div>
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Sheet ID - Forecast Unificado</label>
+        <input type="text" id="cfgSheetIdForecast" placeholder="ID del Google Sheet de Forecast" style="font-size:13px;"></div>
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Nombre de hoja (forecast)</label>
+        <input type="text" id="cfgSheetNameForecast" value="Resumen Gral." style="font-size:13px;"></div>
+        <button class="btn-gold" onclick="saveConfigSheets()">💾 Guardar configuración</button>
+      </div>
+    </div>
   `;
+
+  // Load existing sheets config
+  const { data: cfgSheets } = await sb.from('config_sheets').select('*').eq('id', 1).single();
+  if (cfgSheets) {
+    document.getElementById('cfgSheetIdStocks').value = cfgSheets.sheet_id_stocks || '';
+    document.getElementById('cfgSheetNameStocks').value = cfgSheets.sheet_name_stocks || 'Ventas stock cierre cobertura';
+    document.getElementById('cfgSheetIdForecast').value = cfgSheets.sheet_id_forecast || '';
+    document.getElementById('cfgSheetNameForecast').value = cfgSheets.sheet_name_forecast || 'Resumen Gral.';
+  }
 }
 
 // Admin: Add brand to user
@@ -1395,6 +1830,21 @@ async function removeProveedorHabitual(marca, prov) {
   }, { label: 'Quitar proveedor' });
   await loadPlantillas();
   renderAdmin(document.getElementById('tabContent'));
+}
+
+// Admin: Save Google Sheets config
+async function saveConfigSheets() {
+  const cfg = {
+    id: 1,
+    sheet_id_stocks: document.getElementById('cfgSheetIdStocks')?.value?.trim() || null,
+    sheet_name_stocks: document.getElementById('cfgSheetNameStocks')?.value?.trim() || 'Ventas stock cierre cobertura',
+    sheet_id_forecast: document.getElementById('cfgSheetIdForecast')?.value?.trim() || null,
+    sheet_name_forecast: document.getElementById('cfgSheetNameForecast')?.value?.trim() || 'Resumen Gral.',
+    sync_enabled: true,
+  };
+  const { error } = await sb.from('config_sheets').upsert(cfg);
+  if (error) { toast('Error: ' + error.message, true); return; }
+  toast('Configuración de Sheets guardada');
 }
 
 // =============================================
