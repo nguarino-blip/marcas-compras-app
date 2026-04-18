@@ -1849,61 +1849,65 @@ async function removeProveedorHabitual(marca, prov) {
 }
 
 // Admin: Save Google Sheets config
+// Extraer Sheet ID de una URL completa de Google Sheets
+function extractSheetId(input) {
+  if (!input) return null;
+  const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  if (match) return match[1];
+  if (!input.includes('/') && input.length > 10) return input;
+  return input.trim();
+}
+
 async function saveConfigSheets(btn) {
   const status = document.getElementById('sheetsStatus');
   if (btn) btn.disabled = true;
-  if (status) status.textContent = 'Guardando...';
-  if (status) status.style.color = 'var(--gold)';
+  if (status) { status.textContent = 'Guardando...'; status.style.color = 'var(--gold)'; }
 
   try {
-    const sheetIdStocks = document.getElementById('cfgSheetIdStocks')?.value?.trim() || null;
+    const rawStocks = document.getElementById('cfgSheetIdStocks')?.value?.trim() || '';
+    const rawForecast = document.getElementById('cfgSheetIdForecast')?.value?.trim() || '';
+    const sheetIdStocks = extractSheetId(rawStocks);
+    const sheetIdForecast = extractSheetId(rawForecast);
     const sheetNameStocks = document.getElementById('cfgSheetNameStocks')?.value?.trim() || 'Ventas stock cierre cobertura';
-    const sheetIdForecast = document.getElementById('cfgSheetIdForecast')?.value?.trim() || null;
     const sheetNameForecast = document.getElementById('cfgSheetNameForecast')?.value?.trim() || 'Resumen Gral.';
 
     if (!sheetIdStocks && !sheetIdForecast) {
-      toast('Ingresá al menos un Sheet ID', true);
-      if (status) status.textContent = '⚠️ Falta Sheet ID';
-      if (status) status.style.color = 'var(--red)';
+      toast('Ingresá al menos un Sheet ID o URL', true);
+      if (status) { status.textContent = '⚠️ Falta Sheet ID'; status.style.color = 'var(--red)'; }
       if (btn) btn.disabled = false;
       return;
     }
 
-    const payload = {
-      id: 1,
-      sheet_id_stocks: sheetIdStocks,
-      sheet_name_stocks: sheetNameStocks,
-      sheet_id_forecast: sheetIdForecast,
-      sheet_name_forecast: sheetNameForecast,
-      sync_enabled: true,
-    };
+    console.log('Saving sheets config:', { sheetIdStocks, sheetIdForecast });
 
-    // Try insert first (if table is empty), then update if it already exists
-    const { error: insErr } = await sb.from('config_sheets').insert(payload);
-    if (insErr) {
-      // Row probably exists already, try update
-      const { error: updErr } = await sb.from('config_sheets').update({
-        sheet_id_stocks: sheetIdStocks,
-        sheet_name_stocks: sheetNameStocks,
-        sheet_id_forecast: sheetIdForecast,
-        sheet_name_forecast: sheetNameForecast,
-        sync_enabled: true,
-      }).eq('id', 1);
+    // Timeout de 10 segundos para no quedar colgado
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout (10s). Ejecutá el SQL de permisos RLS en Supabase.')), 10000));
 
-      if (updErr) {
-        console.error('saveConfigSheets errors:', { insErr, updErr });
-        const msg = updErr.message || insErr.message || 'Error desconocido';
-        toast('Error guardando: ' + msg, true);
-        if (status) { status.textContent = '❌ ' + msg; status.style.color = 'var(--red)'; }
-        if (btn) btn.disabled = false;
-        return;
+    const save = (async () => {
+      const { error: insErr } = await sb.from('config_sheets').insert({
+        id: 1, sheet_id_stocks: sheetIdStocks, sheet_name_stocks: sheetNameStocks,
+        sheet_id_forecast: sheetIdForecast, sheet_name_forecast: sheetNameForecast, sync_enabled: true,
+      });
+      if (insErr) {
+        console.log('Insert failed:', insErr.message, '→ trying update');
+        const { error: updErr } = await sb.from('config_sheets').update({
+          sheet_id_stocks: sheetIdStocks, sheet_name_stocks: sheetNameStocks,
+          sheet_id_forecast: sheetIdForecast, sheet_name_forecast: sheetNameForecast, sync_enabled: true,
+        }).eq('id', 1);
+        if (updErr) throw new Error(updErr.message);
       }
-    }
+    })();
+
+    await Promise.race([save, timeout]);
+
+    // Mostrar IDs extraídos en los campos
+    if (sheetIdStocks) document.getElementById('cfgSheetIdStocks').value = sheetIdStocks;
+    if (sheetIdForecast) document.getElementById('cfgSheetIdForecast').value = sheetIdForecast;
 
     toast('Configuración de Sheets guardada ✓');
     if (status) { status.textContent = '✅ Guardado'; status.style.color = 'var(--green)'; }
   } catch (e) {
-    console.error('saveConfigSheets exception:', e);
+    console.error('saveConfigSheets error:', e);
     toast('Error: ' + e.message, true);
     if (status) { status.textContent = '❌ ' + e.message; status.style.color = 'var(--red)'; }
   }
