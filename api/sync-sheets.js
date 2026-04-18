@@ -23,7 +23,6 @@ function getAuth() {
   });
 }
 
-// Parse a number from sheet cell (handles Argentine format: 1.234,56)
 function parseNum(val) {
   if (val == null || val === '' || val === '-') return 0;
   if (typeof val === 'number') return val;
@@ -32,12 +31,133 @@ function parseNum(val) {
   return isNaN(n) ? 0 : n;
 }
 
-// Get current month index (0=Jan) and build column mapping for stock sheet
 function getCurrentMonthCol() {
   const now = new Date();
-  return now.getMonth(); // 0-indexed
+  return now.getMonth();
 }
 
+// ─── SYNC 1: Stock Sistema (nueva planilla — código + stock total sumando depósitos) ───
+async function syncStockSistema(sheets, config, supabase) {
+  if (!config.sheet_id_stock_sistema) return { updated: 0, skipped: 'No sheet_id_stock_sistema configured' };
+
+  // 1. Read "Descripcion" sheet to get code → name mapping
+  let descMap = {};
+  try {
+    const descRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: config.sheet_id_stock_sistema,
+      range: `'${config.sheet_name_descripcion || 'Descripcion'}'`,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+    });
+    const descRows = descRes.data.values || [];
+    // Row 0 = headers: CODIGO, AGRUPA, NOMBRE_COR, DETALLE
+    for (let r = 1; r < descRows.length; r++) {
+      const row = descRows[r];
+      const codigo = String(row[0] || '').trim();
+      const nombre = String(row[2] || row[3] || '').trim();
+      if (codigo) descMap[codigo] = nombre;
+    }
+  } catch (e) {
+    console.warn('Could not read Descripcion sheet:', e.message);
+  }
+
+  // 2. Read "Stock Sistema" sheet — pivot table: CODIGO | dep1 | dep2 | ... | TOTAL
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: config.sheet_id_stock_sistema,
+    range: `'${config.sheet_name_stock_sistema || 'Stock Sistema'}'`,
+    valueRenderOption: 'UNFORMATTED_VALUE',
+  });
+
+  const rows = res.data.values || [];
+  if (rows.length < 3) return { updated: 0, skipped: 'Not enough rows in Stock Sistema' };
+
+  // Row 0: "SUM de STOCK" | "DEPOSITO" | ...
+  // Row 1: "CODIGO" | dep_100 | dep_105 | ... | "TOTAL"
+  // Row 2+: codigo | qty_dep1 | qty_dep2 | ... | total
+  const headerRow = rows[1] || [];
+  const totalColIdx = headerRow.findIndex(h => String(h || '').toUpperCase().trim() === 'TOTAL');
+
+  const updates = [];
+  for (let r = 2; r < rows.length; r++) {
+    const row = rows[r];
+    const codigoRaw = row[0];
+    if (codigoRaw == null || codigoRaw === '' || String(codigoRaw).toUpperCase() === 'TOTAL') continue;
+    const codigo = String(codigoRaw).trim();
+
+    // Get total stock: use TOTAL column if available, otherwise sum all deposit columns
+    let stockTotal = 0;
+    if (totalColIdx >= 0 && row[totalColIdx] != null) {
+      stockTotal = parseNum(row[totalColIdx]);
+    } else {
+      for (let c = 1; c < row.length; c++) {
+        stockTotal += parseNum(row[c]);
+      }
+    }
+
+    if (stockTotal === 0 && !descMap[codigo]) continue; // Skip zero-stock items without description
+
+    const nombre = descMap[codigo] || `Producto ${codigo}`;
+
+    updates.push({
+      codigo: codigo,
+      nombre: nombre,
+      stock_actual: stockTotal,
+      fecha_sync: new Date().toISOString(),
+    });
+  }
+
+  if (updates.length === 0) return { updated: 0, skipped: 'No products found in Stock Sistema' };
+
+  // Update stock_actual for existing products by codigo (across all marcas)
+  // Also insert new products with marca='Sin asignar' if they don't exist
+  let updatedCount = 0;
+  let insertedCount = 0;
+
+  // Batch: first try to update existing records by codigo
+  const codigos = updates.map(u => u.codigo);
+
+  // Get existing products
+  const { data: existing } = await supabase
+    .from('stock_productos')
+    .select('id, codigo, marca')
+    .in('codigo', codigos);
+
+  const existingCodigos = new Set((existing || []).map(e => e.codigo));
+
+  // Update existing products' stock_actual
+  for (const upd of updates) {
+    if (existingCodigos.has(upd.codigo)) {
+      const { error } = await supabase
+        .from('stock_productos')
+        .update({ stock_actual: upd.stock_actual, fecha_sync: upd.fecha_sync })
+        .eq('codigo', upd.codigo);
+      if (!error) updatedCount++;
+    }
+  }
+
+  // Insert new products (not yet in stock_productos)
+  const newProducts = updates
+    .filter(u => !existingCodigos.has(u.codigo))
+    .map(u => ({
+      codigo: u.codigo,
+      nombre: u.nombre,
+      marca: 'Sin asignar',
+      stock_actual: u.stock_actual,
+      fecha_sync: u.fecha_sync,
+    }));
+
+  if (newProducts.length > 0) {
+    // Batch insert in chunks of 500
+    for (let i = 0; i < newProducts.length; i += 500) {
+      const chunk = newProducts.slice(i, i + 500);
+      const { error } = await supabase.from('stock_productos').upsert(chunk, { onConflict: 'codigo,marca' });
+      if (!error) insertedCount += chunk.length;
+    }
+  }
+
+  return { updated: updatedCount, inserted: insertedCount, total_codes: updates.length };
+}
+
+// ─── SYNC 2: Ventas/Stock/Cobertura (planilla original) ───
 async function syncStocks(sheets, config, supabase) {
   if (!config.sheet_id_stocks) return { updated: 0, skipped: 'No sheet_id_stocks configured' };
 
@@ -50,14 +170,9 @@ async function syncStocks(sheets, config, supabase) {
   const rows = res.data.values || [];
   if (rows.length < 3) return { updated: 0, skipped: 'Not enough rows' };
 
-  // Find header rows — the sheet has a complex structure with 4 sections side by side
-  // Row 0: section headers (VENTAS, STOCKS A CIERRE, COBERTURA, INGRESOS)
-  // Row 1: month names
-  // Row 2+: data rows with Marca in col 0, Producto in col 1
   const headerRow = rows[0] || [];
   const monthRow = rows[1] || [];
 
-  // Find section start columns
   let stocksStartCol = -1, coberturaStartCol = -1, ventasStartCol = -1;
   for (let i = 0; i < headerRow.length; i++) {
     const h = String(headerRow[i] || '').toUpperCase().trim();
@@ -66,7 +181,6 @@ async function syncStocks(sheets, config, supabase) {
     if (h.includes('COBERTURA')) coberturaStartCol = i;
   }
 
-  // Find the current month column in each section
   const currentMonth = getCurrentMonthCol();
   const monthNames = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
   const curMonthName = monthNames[currentMonth];
@@ -77,7 +191,6 @@ async function syncStocks(sheets, config, supabase) {
       const m = String(monthRow[i] || '').toUpperCase().trim().substring(0, 3);
       if (m === curMonthName) return i;
     }
-    // Fallback: use the last available column in the section
     return startCol + 1;
   }
 
@@ -85,7 +198,6 @@ async function syncStocks(sheets, config, supabase) {
   const stockCol = findMonthCol(stocksStartCol);
   const coberturaCol = findMonthCol(coberturaStartCol);
 
-  // Parse data rows
   const productos = [];
   for (let r = 2; r < rows.length; r++) {
     const row = rows[r];
@@ -93,7 +205,6 @@ async function syncStocks(sheets, config, supabase) {
     const nombre = String(row[1] || '').trim();
     if (!marca || !nombre || marca === 'TOTAL' || marca === 'Total') continue;
 
-    // Use marca as code if no separate code column, otherwise try col 1 for code
     const codigo = nombre.substring(0, 30).replace(/\s+/g, '_').toUpperCase();
 
     productos.push({
@@ -109,7 +220,6 @@ async function syncStocks(sheets, config, supabase) {
 
   if (productos.length === 0) return { updated: 0, skipped: 'No products found' };
 
-  // Upsert to Supabase
   const { error } = await supabase.from('stock_productos').upsert(
     productos,
     { onConflict: 'codigo,marca' }
@@ -119,6 +229,7 @@ async function syncStocks(sheets, config, supabase) {
   return { updated: productos.length };
 }
 
+// ─── SYNC 3: Forecast ───
 async function syncForecast(sheets, config, supabase) {
   if (!config.sheet_id_forecast) return { updated: 0, skipped: 'No sheet_id_forecast configured' };
 
@@ -131,7 +242,6 @@ async function syncForecast(sheets, config, supabase) {
   const rows = res.data.values || [];
   if (rows.length < 2) return { updated: 0, skipped: 'Not enough rows' };
 
-  // Find headers — expected: SEGMENTO, POLO, MARCA, CODIGO_PRODUCTO, NOMBRE_PRODUCTO, then monthly columns
   const headers = (rows[0] || []).map(h => String(h || '').toUpperCase().trim());
   const colIdx = (name) => headers.findIndex(h => h.includes(name));
 
@@ -141,12 +251,10 @@ async function syncForecast(sheets, config, supabase) {
   const iCodigo = colIdx('CODIGO');
   const iNombre = colIdx('NOMBRE');
 
-  // Find forecast columns for next month
   const nextMonth = (getCurrentMonthCol() + 1) % 12;
   const monthNames2 = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
   const nextMonthName = monthNames2[nextMonth];
 
-  // Look for forecast quantity column (QTY or UNIDADES) for next month
   let forecastCol = -1;
   for (let i = 0; i < headers.length; i++) {
     const h = headers[i];
@@ -155,7 +263,6 @@ async function syncForecast(sheets, config, supabase) {
       break;
     }
   }
-  // Fallback: just find next month name
   if (forecastCol === -1) {
     for (let i = 0; i < headers.length; i++) {
       if (String(headers[i]).includes(nextMonthName)) { forecastCol = i; break; }
@@ -185,7 +292,6 @@ async function syncForecast(sheets, config, supabase) {
 
   if (updates.length === 0) return { updated: 0, skipped: 'No forecast products found' };
 
-  // Upsert — only update forecast fields, don't overwrite stock data
   const { error } = await supabase.from('stock_productos').upsert(
     updates,
     { onConflict: 'codigo,marca', ignoreDuplicates: false }
@@ -195,17 +301,14 @@ async function syncForecast(sheets, config, supabase) {
   return { updated: updates.length };
 }
 
+// ─── HANDLER ───
 export default async function handler(req, res) {
-  // Auth: cron secret, internal API key, or Supabase user token
   let authorized = false;
   const authHeader = req.headers.authorization || '';
 
-  // 1. Cron secret
   if (authHeader === `Bearer ${process.env.CRON_SECRET}`) authorized = true;
-  // 2. Internal API key
   if (!authorized && req.headers['x-api-key'] === process.env.INTERNAL_API_KEY) authorized = true;
-  // 3. Supabase user token (from frontend)
-  if (!authorized && authHeader.startsWith('Bearer ') && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!authorized && authHeader.startsWith('Bearer ')) {
     try {
       const sb = getSupabase();
       const token = authHeader.replace('Bearer ', '');
@@ -219,7 +322,6 @@ export default async function handler(req, res) {
   try {
     const supabase = getSupabase();
 
-    // Get config
     const { data: configArr } = await supabase.from('config_sheets').select('*').eq('id', 1);
     const config = configArr?.[0];
     if (!config || !config.sync_enabled) {
@@ -229,28 +331,30 @@ export default async function handler(req, res) {
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
 
-    const [stockResult, forecastResult] = await Promise.allSettled([
+    // Run all 3 syncs in parallel
+    const [stockSistemaResult, stockResult, forecastResult] = await Promise.allSettled([
+      syncStockSistema(sheets, config, supabase),
       syncStocks(sheets, config, supabase),
       syncForecast(sheets, config, supabase),
     ]);
 
+    const stockSistemaRes = stockSistemaResult.status === 'fulfilled' ? stockSistemaResult.value : { error: stockSistemaResult.reason?.message };
     const stockRes = stockResult.status === 'fulfilled' ? stockResult.value : { error: stockResult.reason?.message };
     const forecastRes = forecastResult.status === 'fulfilled' ? forecastResult.value : { error: forecastResult.reason?.message };
 
-    // Update cobertura_meses for products that now have both stock and forecast/venta
     await supabase.rpc('recalculate_cobertura');
 
-    // Log sync
+    const totalUpdated = (stockSistemaRes.updated || 0) + (stockSistemaRes.inserted || 0) + (stockRes.updated || 0) + (forecastRes.updated || 0);
     await supabase.from('stock_sync_log').insert({
-      productos_actualizados: (stockRes.updated || 0) + (forecastRes.updated || 0),
-      errores: [stockRes.error, forecastRes.error].filter(Boolean).join('; ') || null,
+      productos_actualizados: totalUpdated,
+      errores: [stockSistemaRes.error, stockRes.error, forecastRes.error].filter(Boolean).join('; ') || null,
     });
 
-    // Update last_sync
     await supabase.from('config_sheets').update({ last_sync: new Date().toISOString() }).eq('id', 1);
 
     return res.status(200).json({
       message: 'Sync completed',
+      stock_sistema: stockSistemaRes,
       stocks: stockRes,
       forecast: forecastRes,
     });
