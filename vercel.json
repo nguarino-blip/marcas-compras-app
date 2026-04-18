@@ -12,6 +12,14 @@
     {
       "path": "/api/weekly-report",
       "schedule": "0 9 * * 1"
+    },
+    {
+      "path": "/api/sync-sheets",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/stock-alerts",
+      "schedule": "0 10 * * *"
     }
   ]
 }
