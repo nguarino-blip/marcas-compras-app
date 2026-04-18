@@ -1252,14 +1252,21 @@ let stockProductos = [];
 let configMarcasData = [];
 
 async function loadStockData() {
-  const [alertRes, prodRes, cfgRes] = await Promise.allSettled([
-    sb.rpc('get_stock_alerts_data'),
-    sb.from('stock_productos').select('*').order('marca').order('cobertura_meses', { ascending: true }),
-    sb.from('config_marcas').select('*').order('marca'),
-  ]);
-  stockData = alertRes.status === 'fulfilled' ? alertRes.value?.data : null;
-  stockProductos = prodRes.status === 'fulfilled' ? (prodRes.value?.data || []) : [];
-  configMarcasData = cfgRes.status === 'fulfilled' ? (cfgRes.value?.data || []) : [];
+  try {
+    const [alertRes, prodRes, cfgRes] = await Promise.allSettled([
+      sb.rpc('get_stock_alerts_data'),
+      sb.from('stock_productos').select('*').order('marca').order('cobertura_meses', { ascending: true }),
+      sb.from('config_marcas').select('*').order('marca'),
+    ]);
+    stockData = (alertRes.status === 'fulfilled' && !alertRes.value?.error) ? alertRes.value?.data : null;
+    stockProductos = (prodRes.status === 'fulfilled' && !prodRes.value?.error) ? (prodRes.value?.data || []) : [];
+    configMarcasData = (cfgRes.status === 'fulfilled' && !cfgRes.value?.error) ? (cfgRes.value?.data || []) : [];
+  } catch (e) {
+    console.warn('Error loading stock data:', e.message);
+    stockData = null;
+    stockProductos = [];
+    configMarcasData = [];
+  }
 }
 
 async function renderStock(c) {
@@ -1756,13 +1763,21 @@ async function renderAdmin(c) {
     </div>
   `;
 
-  // Load existing sheets config
-  const { data: cfgSheets } = await sb.from('config_sheets').select('*').eq('id', 1).single();
-  if (cfgSheets) {
-    document.getElementById('cfgSheetIdStocks').value = cfgSheets.sheet_id_stocks || '';
-    document.getElementById('cfgSheetNameStocks').value = cfgSheets.sheet_name_stocks || 'Ventas stock cierre cobertura';
-    document.getElementById('cfgSheetIdForecast').value = cfgSheets.sheet_id_forecast || '';
-    document.getElementById('cfgSheetNameForecast').value = cfgSheets.sheet_name_forecast || 'Resumen Gral.';
+  // Load existing sheets config (may not exist yet)
+  try {
+    const { data: cfgSheets } = await sb.from('config_sheets').select('*').eq('id', 1).maybeSingle();
+    if (cfgSheets) {
+      const el1 = document.getElementById('cfgSheetIdStocks');
+      const el2 = document.getElementById('cfgSheetNameStocks');
+      const el3 = document.getElementById('cfgSheetIdForecast');
+      const el4 = document.getElementById('cfgSheetNameForecast');
+      if (el1) el1.value = cfgSheets.sheet_id_stocks || '';
+      if (el2) el2.value = cfgSheets.sheet_name_stocks || 'Ventas stock cierre cobertura';
+      if (el3) el3.value = cfgSheets.sheet_id_forecast || '';
+      if (el4) el4.value = cfgSheets.sheet_name_forecast || 'Resumen Gral.';
+    }
+  } catch (e) {
+    console.warn('Config sheets not loaded:', e.message);
   }
 }
 
@@ -1834,17 +1849,30 @@ async function removeProveedorHabitual(marca, prov) {
 
 // Admin: Save Google Sheets config
 async function saveConfigSheets() {
-  const cfg = {
-    id: 1,
-    sheet_id_stocks: document.getElementById('cfgSheetIdStocks')?.value?.trim() || null,
-    sheet_name_stocks: document.getElementById('cfgSheetNameStocks')?.value?.trim() || 'Ventas stock cierre cobertura',
-    sheet_id_forecast: document.getElementById('cfgSheetIdForecast')?.value?.trim() || null,
-    sheet_name_forecast: document.getElementById('cfgSheetNameForecast')?.value?.trim() || 'Resumen Gral.',
-    sync_enabled: true,
-  };
-  const { error } = await sb.from('config_sheets').upsert(cfg);
-  if (error) { toast('Error: ' + error.message, true); return; }
-  toast('Configuración de Sheets guardada');
+  try {
+    const cfg = {
+      id: 1,
+      sheet_id_stocks: document.getElementById('cfgSheetIdStocks')?.value?.trim() || null,
+      sheet_name_stocks: document.getElementById('cfgSheetNameStocks')?.value?.trim() || 'Ventas stock cierre cobertura',
+      sheet_id_forecast: document.getElementById('cfgSheetIdForecast')?.value?.trim() || null,
+      sheet_name_forecast: document.getElementById('cfgSheetNameForecast')?.value?.trim() || 'Resumen Gral.',
+      sync_enabled: true,
+    };
+    // Try upsert first
+    const { error } = await sb.from('config_sheets').upsert(cfg, { onConflict: 'id' });
+    if (error) {
+      // If RLS blocks, try insert then update
+      console.warn('Upsert failed, trying insert:', error.message);
+      const { error: insErr } = await sb.from('config_sheets').insert(cfg);
+      if (insErr) {
+        const { error: updErr } = await sb.from('config_sheets').update(cfg).eq('id', 1);
+        if (updErr) { toast('Error guardando config: ' + updErr.message, true); return; }
+      }
+    }
+    toast('Configuración de Sheets guardada ✓');
+  } catch (e) {
+    toast('Error: ' + e.message, true);
+  }
 }
 
 // =============================================
