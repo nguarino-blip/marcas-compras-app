@@ -1760,6 +1760,14 @@ async function renderAdmin(c) {
         <input type="text" id="cfgSheetIdForecast" placeholder="ID del Google Sheet de Forecast" style="font-size:13px;"></div>
         <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Nombre de hoja (forecast)</label>
         <input type="text" id="cfgSheetNameForecast" value="Resumen Gral." style="font-size:13px;"></div>
+        <hr style="border-color:var(--border);margin:16px 0;">
+        <p style="font-size:12px;color:var(--gold);margin-bottom:8px;">📦 Stock del Sistema (planilla con stock por depósito)</p>
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Sheet ID - Stock Sistema</label>
+        <input type="text" id="cfgSheetIdStockSistema" placeholder="ID del Google Sheet de Stock del Sistema" style="font-size:13px;"></div>
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Nombre de hoja (stock)</label>
+        <input type="text" id="cfgSheetNameStockSistema" value="Stock Sistema" style="font-size:13px;"></div>
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Nombre de hoja (descripciones)</label>
+        <input type="text" id="cfgSheetNameDescripcion" value="Descripcion" style="font-size:13px;"></div>
         <button class="btn-gold" id="btnSaveSheets" onclick="saveConfigSheets(this)">💾 Guardar configuración</button>
         <span id="sheetsStatus" style="margin-left:8px;font-size:12px;"></span>
       </div>
@@ -1774,10 +1782,16 @@ async function renderAdmin(c) {
       const el2 = document.getElementById('cfgSheetNameStocks');
       const el3 = document.getElementById('cfgSheetIdForecast');
       const el4 = document.getElementById('cfgSheetNameForecast');
+      const el5 = document.getElementById('cfgSheetIdStockSistema');
+      const el6 = document.getElementById('cfgSheetNameStockSistema');
+      const el7 = document.getElementById('cfgSheetNameDescripcion');
       if (el1) el1.value = cfgSheets.sheet_id_stocks || '';
       if (el2) el2.value = cfgSheets.sheet_name_stocks || 'Ventas stock cierre cobertura';
       if (el3) el3.value = cfgSheets.sheet_id_forecast || '';
       if (el4) el4.value = cfgSheets.sheet_name_forecast || 'Resumen Gral.';
+      if (el5) el5.value = cfgSheets.sheet_id_stock_sistema || '';
+      if (el6) el6.value = cfgSheets.sheet_name_stock_sistema || 'Stock Sistema';
+      if (el7) el7.value = cfgSheets.sheet_name_descripcion || 'Descripcion';
     }
   } catch (e) {
     console.warn('Config sheets not loaded:', e.message);
@@ -1868,43 +1882,47 @@ async function saveConfigSheets(btn) {
   try {
     const rawStocks = document.getElementById('cfgSheetIdStocks')?.value?.trim() || '';
     const rawForecast = document.getElementById('cfgSheetIdForecast')?.value?.trim() || '';
+    const rawStockSistema = document.getElementById('cfgSheetIdStockSistema')?.value?.trim() || '';
     const sheetIdStocks = extractSheetId(rawStocks);
     const sheetIdForecast = extractSheetId(rawForecast);
+    const sheetIdStockSistema = extractSheetId(rawStockSistema);
     const sheetNameStocks = document.getElementById('cfgSheetNameStocks')?.value?.trim() || 'Ventas stock cierre cobertura';
     const sheetNameForecast = document.getElementById('cfgSheetNameForecast')?.value?.trim() || 'Resumen Gral.';
+    const sheetNameStockSistema = document.getElementById('cfgSheetNameStockSistema')?.value?.trim() || 'Stock Sistema';
+    const sheetNameDescripcion = document.getElementById('cfgSheetNameDescripcion')?.value?.trim() || 'Descripcion';
 
-    if (!sheetIdStocks && !sheetIdForecast) {
+    if (!sheetIdStocks && !sheetIdForecast && !sheetIdStockSistema) {
       toast('Ingresá al menos un Sheet ID o URL', true);
       if (status) { status.textContent = '⚠️ Falta Sheet ID'; status.style.color = 'var(--red)'; }
       if (btn) btn.disabled = false;
       return;
     }
 
-    console.log('Saving sheets config:', { sheetIdStocks, sheetIdForecast });
+    console.log('Saving sheets config:', { sheetIdStocks, sheetIdForecast, sheetIdStockSistema });
 
-    // Timeout de 10 segundos para no quedar colgado
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout (10s). Ejecutá el SQL de permisos RLS en Supabase.')), 10000));
 
+    const configData = {
+      sheet_id_stocks: sheetIdStocks, sheet_name_stocks: sheetNameStocks,
+      sheet_id_forecast: sheetIdForecast, sheet_name_forecast: sheetNameForecast,
+      sheet_id_stock_sistema: sheetIdStockSistema, sheet_name_stock_sistema: sheetNameStockSistema,
+      sheet_name_descripcion: sheetNameDescripcion, sync_enabled: true,
+    };
+
     const save = (async () => {
-      const { error: insErr } = await sb.from('config_sheets').insert({
-        id: 1, sheet_id_stocks: sheetIdStocks, sheet_name_stocks: sheetNameStocks,
-        sheet_id_forecast: sheetIdForecast, sheet_name_forecast: sheetNameForecast, sync_enabled: true,
-      });
+      const { error: insErr } = await sb.from('config_sheets').insert({ id: 1, ...configData });
       if (insErr) {
         console.log('Insert failed:', insErr.message, '→ trying update');
-        const { error: updErr } = await sb.from('config_sheets').update({
-          sheet_id_stocks: sheetIdStocks, sheet_name_stocks: sheetNameStocks,
-          sheet_id_forecast: sheetIdForecast, sheet_name_forecast: sheetNameForecast, sync_enabled: true,
-        }).eq('id', 1);
+        const { error: updErr } = await sb.from('config_sheets').update(configData).eq('id', 1);
         if (updErr) throw new Error(updErr.message);
       }
     })();
 
     await Promise.race([save, timeout]);
 
-    // Mostrar IDs extraídos en los campos
     if (sheetIdStocks) document.getElementById('cfgSheetIdStocks').value = sheetIdStocks;
     if (sheetIdForecast) document.getElementById('cfgSheetIdForecast').value = sheetIdForecast;
+    if (sheetIdStockSistema) document.getElementById('cfgSheetIdStockSistema').value = sheetIdStockSistema;
 
     toast('Configuración de Sheets guardada ✓');
     if (status) { status.textContent = '✅ Guardado'; status.style.color = 'var(--green)'; }
