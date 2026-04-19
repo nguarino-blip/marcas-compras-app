@@ -1583,188 +1583,279 @@ async function triggerSync() {
   }
 }
 
-// ─── MRP TAB — Demand Planning profesional ───
-// Lógica: Forecast → Cobertura 60d PT + 60d Insumos → Acciones
-// Marcas discontinuadas: excluidas del análisis activo
-// Fascino: compra exterior full service, LT 150 días
+// ─── MRP TAB — Demand Planning S&OP ───
+// PROBLEMA IDENTIFICADO: stock_productos tiene códigos sintéticos (del nombre),
+// pero bom_productos tiene códigos reales numéricos del sistema.
+// SOLUCIÓN: Partir del BOM (lo que fabricamos), cruzar con stock por múltiples claves,
+// y mostrar todo incluso sin match perfecto.
 
-const MARCAS_DISCONTINUADAS = ['Relazzi', 'Little Paris'];
-const MARCAS_COMPRA_EXTERIOR = { 'Fascino': 150 }; // marca → LT días
-const COB_TARGET_PT = 60;        // 60 días cobertura PT
-const COB_TARGET_INSUMO = 60;    // 60 días cobertura insumo adicional
-const COB_PIPELINE = 120;        // Total pipeline: PT + insumo = 120 días
+const MARCAS_DISC = new Set(['relazzi', 'little paris']);
+const COMPRA_EXT_LT = { 'fascino': 150 }; // marca lowercase → LT días
+const COB_PT = 60;
+const COB_INS = 60;
+const COB_PIPE = 120; // PT + insumos
 
 async function renderMRPPage(c) {
   c.innerHTML = '<div style="text-align:center;padding:40px;color:var(--txt2);">Calculando plan de abastecimiento...</div>';
 
   try {
-    const [cmRes, allProdRes, prodnRes, bomRes, insRes] = await Promise.all([
-      sb.from('config_marcas').select('*').order('marca'),
-      sb.from('stock_productos').select('codigo, nombre, marca, stock_actual, venta_mensual_avg, forecast_proximo_mes, cobertura_meses').range(0, 9999),
+    const [cmRes, spRes, prRes, bomRes, insRes] = await Promise.all([
+      sb.from('config_marcas').select('*'),
+      sb.from('stock_productos').select('codigo, nombre, marca, stock_actual, venta_mensual_avg, forecast_proximo_mes').range(0, 9999),
       sb.from('producciones_planificadas').select('codigo, mes, cantidad').gte('mes', new Date().toISOString().substring(0,7)+'-01').range(0, 9999),
       sb.from('bom_productos').select('codigo_principal, nombre_principal, codigo_insumo, detalle_insumo, cantidad_formula, es_envase, nivel').range(0, 9999),
       sb.from('stock_insumos').select('codigo, detalle, stock_fisico, tipo_insumo_global, lead_time_dias').range(0, 9999),
     ]);
 
     const configMarcas = cmRes.data || [];
-    const allProducts = allProdRes.data || [];
-    const prodData = prodnRes.data || [];
-    const bomData = bomRes.data || [];
-    const insumosData = insRes.data || [];
+    const stockProds = spRes.data || [];
+    const prodPlan = prRes.data || [];
+    const bomRows = bomRes.data || [];
+    const insumos = insRes.data || [];
 
-    // === LOOKUPS ===
-    const prodLookup = {};
-    prodData.forEach(pp => { prodLookup[pp.codigo] = (prodLookup[pp.codigo] || 0) + (pp.cantidad || 0); });
+    // ══════════════════════════════════════════
+    // 1. ÍNDICES
+    // ══════════════════════════════════════════
+    const insIdx = {};
+    insumos.forEach(i => { insIdx[i.codigo] = i; });
 
-    const insumoStock = {};
-    insumosData.forEach(i => { insumoStock[i.codigo] = i; });
+    const prodIdx = {};
+    prodPlan.forEach(p => { prodIdx[p.codigo] = (prodIdx[p.codigo] || 0) + (p.cantidad || 0); });
 
     const marcaLT = {};
-    configMarcas.forEach(cm => { marcaLT[cm.marca] = (cm.lead_time_meses || 3) * 30; }); // en días
+    const marcasFab = new Set(); // marcas con tipo_abastecimiento = fabricacion
+    configMarcas.forEach(cm => {
+      marcaLT[cm.marca] = (cm.lead_time_meses || 3) * 30;
+      if ((cm.tipo_abastecimiento || '').toLowerCase().includes('fabric')) marcasFab.add(cm.marca.toUpperCase());
+    });
 
-    // BOM by PT
+    // Stock lookup por código y por nombre
+    const spByCodigo = {};
+    const spByNombre = {};
+    stockProds.forEach(p => {
+      spByCodigo[p.codigo] = p;
+      const nKey = (p.nombre || '').toUpperCase().replace(/\s+/g, ' ').trim();
+      if (nKey && !spByNombre[nKey]) spByNombre[nKey] = p;
+    });
+
+    // ══════════════════════════════════════════
+    // 2. BOM INDEX: productos con fórmula
+    // ══════════════════════════════════════════
     const bomByPT = {};
-    bomData.forEach(b => {
-      if (!bomByPT[b.codigo_principal]) bomByPT[b.codigo_principal] = [];
-      bomByPT[b.codigo_principal].push(b);
+    bomRows.forEach(b => {
+      if (!bomByPT[b.codigo_principal]) bomByPT[b.codigo_principal] = { codigo: b.codigo_principal, nombre: b.nombre_principal || '', componentes: [] };
+      bomByPT[b.codigo_principal].componentes.push(b);
     });
+    const bomCodigos = new Set(Object.keys(bomByPT));
+    const nBOM = bomCodigos.size;
 
-    // === CLASIFICACIÓN INTELIGENTE ===
-    // 1) Discontinuadas → aparte
-    // 2) Fascino → compra exterior (tiene BOM pero se compra full service)
-    // 3) Tiene BOM y no es compra exterior → fabricación local
-    // 4) No tiene BOM → compra directa (árabes, Cher Beauty, Elizabeth Arden, etc.)
-    const discSet = new Set(MARCAS_DISCONTINUADAS.map(m => m.toUpperCase()));
-    const compraExtSet = new Set(Object.keys(MARCAS_COMPRA_EXTERIOR).map(m => m.toUpperCase()));
+    // ══════════════════════════════════════════
+    // 3. CONSTRUIR LISTA COMPLETA DE FABRICACIÓN
+    //    Fuente 1: Productos con BOM (tienen fórmula)
+    //    Fuente 2: Productos de marcas con tipo_abastecimiento=fabricacion (sin BOM pero son fabricación)
+    //    Esto captura TODOS los productos de fabricación, no solo los del BOM
+    // ══════════════════════════════════════════
+    const fabMap = {}; // codigo → product data
 
-    const classify = (p) => {
-      const mUp = (p.marca || '').toUpperCase();
-      if (discSet.has(mUp)) return 'discontinuado';
-      if (compraExtSet.has(mUp)) return 'compra_exterior';
-      if (bomByPT[p.codigo] && bomByPT[p.codigo].length > 0) return 'fabricacion';
-      return 'compra_directa';
-    };
-
-    // === PROCESAR TODOS LOS PRODUCTOS ===
-    const processed = allProducts
-      .filter(p => p.marca && p.marca !== 'Sin asignar')
-      .map(p => {
-        const tipo = classify(p);
-        const forecast = p.forecast_proximo_mes || 0;
-        const vtaAvg = p.venta_mensual_avg || 0;
-        const demanda = Math.max(forecast, vtaAvg); // mayor entre forecast y promedio real
-        const demandaDia = demanda / 30;
-        const prodPlanif = prodLookup[p.codigo] || 0;
-        const stock = p.stock_actual || 0;
-        const bom = bomByPT[p.codigo] || [];
-
-        // Producibles (solo fabricación)
-        let producibles = 0;
-        let cuelloBotella = null;
-        if (tipo === 'fabricacion' && bom.length > 0) {
-          producibles = Infinity;
-          bom.forEach(b => {
-            const ins = insumoStock[b.codigo_insumo];
-            const stk = ins ? (ins.stock_fisico || 0) : 0;
-            const qty = b.cantidad_formula > 0 ? b.cantidad_formula : 1;
-            const posibles = Math.floor(stk / qty);
-            if (posibles < producibles) {
-              producibles = posibles;
-              cuelloBotella = { codigo: b.codigo_insumo, detalle: b.detalle_insumo, stock: stk, qty, posibles };
-            }
-          });
-          if (producibles === Infinity) producibles = 0;
+    // Helper: match stock product to BOM/stock data
+    function matchSP(codigo, nombre) {
+      let sp = spByCodigo[codigo];
+      if (!sp && nombre) {
+        const nKey = nombre.toUpperCase().replace(/\s+/g, ' ').trim();
+        sp = spByNombre[nKey];
+      }
+      if (!sp && nombre) {
+        const bpUp = nombre.toUpperCase();
+        for (const p of stockProds) {
+          const pUp = (p.nombre || '').toUpperCase();
+          if (pUp && bpUp && (pUp.includes(bpUp) || bpUp.includes(pUp))) { sp = p; break; }
         }
+      }
+      return sp;
+    }
 
-        // Coberturas
-        const cobPT = demandaDia > 0 ? Math.round(stock / demandaDia) : 999;
-        const cobTotal = demandaDia > 0 ? Math.round((stock + prodPlanif + producibles) / demandaDia) : 999;
+    function buildFabItem(codigo, nombre, marca, sp, componentes) {
+      const stock = sp ? (sp.stock_actual || 0) : 0;
+      const forecast = sp ? (sp.forecast_proximo_mes || 0) : 0;
+      const vtaAvg = sp ? (sp.venta_mensual_avg || 0) : 0;
+      const matched = !!sp;
+      const demanda = Math.max(forecast, vtaAvg);
+      const demDia = demanda / 30;
+      const prod = prodIdx[codigo] || (sp ? (prodIdx[sp.codigo] || 0) : 0);
+      const hasBOM = componentes && componentes.length > 0;
 
-        // Acción requerida
-        let accion = '';
-        let urgencia = 0; // 0=ok, 1=planificar, 2=urgente, 3=crítico
-        if (tipo === 'fabricacion') {
-          if (cobPT < 30) { accion = '🔴 PRODUCIR YA'; urgencia = 3; }
-          else if (cobPT < COB_TARGET_PT) { accion = '🟡 Planificar prod.'; urgencia = 2; }
-          else if (cobTotal < COB_PIPELINE) { accion = '🟠 Comprar insumos'; urgencia = 1; }
-          else { accion = '🟢 OK'; }
-        } else if (tipo === 'compra_directa' || tipo === 'compra_exterior') {
-          const ltDias = tipo === 'compra_exterior'
-            ? (MARCAS_COMPRA_EXTERIOR[p.marca] || MARCAS_COMPRA_EXTERIOR[Object.keys(MARCAS_COMPRA_EXTERIOR).find(k => k.toUpperCase() === (p.marca||'').toUpperCase())] || 150)
-            : (marcaLT[p.marca] || 90);
-          if (cobPT < 30) { accion = '🔴 COMPRAR YA'; urgencia = 3; }
-          else if (cobPT < 60) { accion = '🟡 Iniciar OC'; urgencia = 2; }
-          else if (cobPT < ltDias) { accion = '🟠 Planificar OC'; urgencia = 1; }
-          else { accion = '🟢 OK'; }
-        }
-
-        return {
-          codigo: p.codigo, nombre: p.nombre, marca: p.marca,
-          tipo, stock, forecast, vtaAvg, demanda, demandaDia,
-          prodPlanif, producibles, cuelloBotella,
-          cobPT, cobTotal, accion, urgencia, bom
-        };
-      });
-
-    // === LISTAS POR CATEGORÍA ===
-    const fabAll = processed.filter(p => p.tipo === 'fabricacion' && p.demanda > 0)
-      .sort((a, b) => b.demanda - a.demanda);
-    const fabTop = fabAll.slice(0, 40);
-
-    const compraAll = processed.filter(p => (p.tipo === 'compra_directa' || p.tipo === 'compra_exterior') && p.demanda > 0)
-      .sort((a, b) => b.demanda - a.demanda);
-    const compraTop = compraAll.slice(0, 40);
-
-    const discontinuados = processed.filter(p => p.tipo === 'discontinuado');
-
-    // === INSUMOS: demanda de 60 días de producción adicionales ===
-    // Para cada PT de fabricación, si cobTotal < 120d, necesito insumos
-    const insumosDemanda = {};
-    fabAll.forEach(p => {
-      // ¿Cuántas unidades necesito para llegar a 120 días de cobertura?
-      const necesidadTotal = p.demandaDia * COB_PIPELINE;
-      const disponible = p.stock + p.prodPlanif + p.producibles;
-      const deficit = Math.max(0, necesidadTotal - disponible);
-      if (deficit <= 0) return;
-
-      const bom = p.bom || [];
-      bom.forEach(b => {
-        if (!insumosDemanda[b.codigo_insumo]) {
-          const ins = insumoStock[b.codigo_insumo] || {};
-          insumosDemanda[b.codigo_insumo] = {
-            codigo: b.codigo_insumo, detalle: b.detalle_insumo || ins.detalle || '',
-            stock: ins.stock_fisico || 0, tipo: ins.tipo_insumo_global || 'otro',
-            lt_dias: ins.lead_time_dias || 135,
-            demanda: 0, pts: new Set(), ptsInfo: []
-          };
-        }
-        const dem = deficit * (b.cantidad_formula || 1);
-        insumosDemanda[b.codigo_insumo].demanda += dem;
-        insumosDemanda[b.codigo_insumo].pts.add(p.codigo);
-        insumosDemanda[b.codigo_insumo].ptsInfo.push({
-          codigo: p.codigo, nombre: (p.nombre||'').substring(0,25), marca: p.marca,
-          deficit: Math.round(deficit), demIns: Math.round(dem)
+      // Producibles: solo si tiene BOM
+      let producibles = 0, cuello = null;
+      if (hasBOM) {
+        producibles = Infinity;
+        componentes.forEach(comp => {
+          const ins = insIdx[comp.codigo_insumo];
+          const stk = ins ? (ins.stock_fisico || 0) : 0;
+          const qty = comp.cantidad_formula > 0 ? comp.cantidad_formula : 1;
+          const rinde = Math.floor(stk / qty);
+          if (rinde < producibles) {
+            producibles = rinde;
+            cuello = { cod: comp.codigo_insumo, det: comp.detalle_insumo || '', stk, qty, rinde };
+          }
         });
+        if (producibles === Infinity || producibles < 0) producibles = 0;
+      }
+
+      const cobPT = demDia > 0 ? Math.round(stock / demDia) : (stock > 0 ? 999 : 0);
+      const cobTot = demDia > 0 ? Math.round((stock + prod + producibles) / demDia) : (stock + prod + producibles > 0 ? 999 : 0);
+      const disponible = stock + prod + producibles;
+
+      let quiebrePT = null, quiebreTot = null;
+      if (demDia > 0) {
+        const hoy = new Date();
+        quiebrePT = new Date(hoy.getTime() + cobPT * 86400000);
+        quiebreTot = new Date(hoy.getTime() + cobTot * 86400000);
+      }
+
+      const discMarca = MARCAS_DISC.has((marca || '').toLowerCase());
+      const extMarca = !!COMPRA_EXT_LT[(marca || '').toLowerCase()];
+
+      let accion = '', urg = 0;
+      if (discMarca) { accion = '⏸️ Disc.'; urg = -1; }
+      else if (extMarca) { accion = '✈️ Compra ext.'; urg = 0; }
+      else if (demDia <= 0 && stock <= 0 && producibles <= 0) { accion = '❓ Sin datos'; urg = 0; }
+      else if (cobPT < 30) { accion = '🔴 PRODUCIR YA'; urg = 3; }
+      else if (cobPT < COB_PT) { accion = '🟡 Planificar'; urg = 2; }
+      else if (cobTot < COB_PIPE) { accion = '🟠 Comprar ins.'; urg = 1; }
+      else { accion = '🟢 OK'; }
+
+      return {
+        codigo, nombre, marca, matched, hasBOM,
+        stock, forecast, vtaAvg, demanda, demDia, prod, producibles,
+        cuello, cobPT, cobTot, disponible, quiebrePT, quiebreTot,
+        accion, urg, componentes: componentes || [],
+        discMarca, extMarca
+      };
+    }
+
+    // Fuente 1: Productos con BOM
+    for (const bp of Object.values(bomByPT)) {
+      const sp = matchSP(bp.codigo, bp.nombre);
+      const marca = sp ? (sp.marca || '') : '';
+      fabMap[bp.codigo] = buildFabItem(bp.codigo, bp.nombre || (sp ? sp.nombre : ''), marca, sp, bp.componentes);
+    }
+
+    // Fuente 2: Productos de stock_productos cuya marca es de fabricación (y no están ya en fabMap)
+    const fabMapCodigos = new Set(Object.keys(fabMap));
+    for (const sp of stockProds) {
+      if (!sp.marca || sp.marca === 'Sin asignar') continue;
+      if (fabMapCodigos.has(sp.codigo)) continue;
+      // Check if marca is fabricación
+      if (!marcasFab.has(sp.marca.toUpperCase())) continue;
+      if (MARCAS_DISC.has(sp.marca.toLowerCase())) continue;
+      if (COMPRA_EXT_LT[sp.marca.toLowerCase()]) continue;
+      // Check if already matched by BOM (by nombre)
+      let alreadyInBOM = false;
+      for (const k of fabMapCodigos) {
+        const f = fabMap[k];
+        if (f.nombre && sp.nombre && f.nombre.toUpperCase() === sp.nombre.toUpperCase()) { alreadyInBOM = true; break; }
+      }
+      if (alreadyInBOM) continue;
+
+      fabMap[sp.codigo] = buildFabItem(sp.codigo, sp.nombre, sp.marca, sp, []);
+    }
+
+    const fabList = Object.values(fabMap);
+
+    // Separar y ordenar
+    const fabActivos = fabList
+      .filter(p => !p.discMarca && !p.extMarca)
+      .sort((a, b) => b.demanda - a.demanda || a.cobPT - b.cobPT);
+    const fabExt = fabList.filter(p => p.extMarca);
+
+    // ══════════════════════════════════════════
+    // 4. COMPRA DIRECTA: productos sin BOM y marca NO fabricación
+    // ══════════════════════════════════════════
+    const fabAllCodigos = new Set(Object.keys(fabMap));
+    const compraAll = stockProds
+      .filter(p => {
+        if (!p.marca || p.marca === 'Sin asignar') return false;
+        if (fabAllCodigos.has(p.codigo)) return false;
+        if (MARCAS_DISC.has((p.marca || '').toLowerCase())) return false;
+        if (marcasFab.has(p.marca.toUpperCase())) return false; // ya está en fabricación
+        const dem = Math.max(p.forecast_proximo_mes || 0, p.venta_mensual_avg || 0);
+        return dem > 0;
+      })
+      .map(p => {
+        const dem = Math.max(p.forecast_proximo_mes || 0, p.venta_mensual_avg || 0);
+        const demDia = dem / 30;
+        const stk = p.stock_actual || 0;
+        const cobDias = demDia > 0 ? Math.round(stk / demDia) : 999;
+        const isExt = !!COMPRA_EXT_LT[(p.marca || '').toLowerCase()];
+        const lt = isExt ? COMPRA_EXT_LT[(p.marca || '').toLowerCase()] : (marcaLT[p.marca] || 90);
+        let accion = '', urg = 0;
+        if (cobDias < 30) { accion = '🔴 COMPRAR YA'; urg = 3; }
+        else if (cobDias < 60) { accion = '🟡 Iniciar OC'; urg = 2; }
+        else if (cobDias < lt) { accion = '🟠 Planificar'; urg = 1; }
+        else { accion = '🟢 OK'; }
+        return { ...p, demanda: dem, demDia, cobDias, lt, isExt, accion, urg };
+      })
+      .sort((a, b) => b.demanda - a.demanda);
+    const compraTop = compraAll.slice(0, 60);
+
+    // Agregar Fascino (compra exterior) a compra
+    fabExt.forEach(p => {
+      const lt = COMPRA_EXT_LT[(p.marca || '').toLowerCase()] || 150;
+      let accion = '', urg = 0;
+      if (p.cobPT < 30) { accion = '🔴 COMPRAR YA'; urg = 3; }
+      else if (p.cobPT < 60) { accion = '🟡 Iniciar OC'; urg = 2; }
+      else if (p.cobPT < lt) { accion = '🟠 Planificar'; urg = 1; }
+      else { accion = '🟢 OK'; }
+      compraTop.push({ codigo: p.codigo, nombre: p.nombre, marca: p.marca, stock_actual: p.stock, demanda: p.demanda, demDia: p.demDia, cobDias: p.cobPT, lt, isExt: true, accion, urg });
+    });
+    compraTop.sort((a, b) => b.demanda - a.demanda);
+
+    // ══════════════════════════════════════════
+    // 5. DISCONTINUADOS
+    // ══════════════════════════════════════════
+    const discProds = stockProds.filter(p => MARCAS_DISC.has((p.marca || '').toLowerCase()) && (p.stock_actual > 0 || (p.venta_mensual_avg || 0) > 0));
+
+    // ══════════════════════════════════════════
+    // 6. INSUMOS: necesidades para cubrir pipeline 120d
+    // ══════════════════════════════════════════
+    const insDem = {};
+    fabActivos.filter(p => p.hasBOM).forEach(p => {
+      const necTotal = p.demDia * COB_PIPE;
+      const disp = p.stock + p.prod + p.producibles;
+      const deficit = Math.max(0, necTotal - disp);
+      if (deficit <= 0) return;
+      p.componentes.forEach(comp => {
+        if (!insDem[comp.codigo_insumo]) {
+          const ins = insIdx[comp.codigo_insumo] || {};
+          insDem[comp.codigo_insumo] = { cod: comp.codigo_insumo, det: comp.detalle_insumo || ins.detalle || '', stk: ins.stock_fisico || 0, tipo: ins.tipo_insumo_global || 'otro', lt: ins.lead_time_dias || 135, dem: 0, pts: new Set(), info: [] };
+        }
+        const d = deficit * (comp.cantidad_formula || 1);
+        insDem[comp.codigo_insumo].dem += d;
+        insDem[comp.codigo_insumo].pts.add(p.codigo);
+        insDem[comp.codigo_insumo].info.push({ cod: p.codigo, nom: (p.nombre||'').substring(0,20), def: Math.round(deficit), d: Math.round(d) });
       });
     });
-
-    const insumosCompra = Object.values(insumosDemanda)
-      .map(i => ({ ...i, demanda: Math.round(i.demanda), comprar: Math.max(0, Math.round(i.demanda - i.stock)), nPTs: i.pts.size, shared: i.pts.size > 1 }))
-      .filter(i => i.comprar > 0)
-      .sort((a, b) => { const p = { frasco: 1, estuche: 2, esencia: 3, tapa: 4, collar: 5, valvula: 6 }; return (p[a.tipo]||7) - (p[b.tipo]||7) || b.comprar - a.comprar; });
-
+    const insCompra = Object.values(insDem)
+      .map(i => ({ ...i, dem: Math.round(i.dem), buy: Math.max(0, Math.round(i.dem - i.stk)), n: i.pts.size, sh: i.pts.size > 1 }))
+      .filter(i => i.buy > 0)
+      .sort((a, b) => { const p = { frasco:1,estuche:2,esencia:3 }; return (p[a.tipo]||9)-(p[b.tipo]||9) || b.buy-a.buy; });
     const insGrp = {};
-    insumosCompra.forEach(i => { if (!insGrp[i.tipo]) insGrp[i.tipo] = []; insGrp[i.tipo].push(i); });
+    insCompra.forEach(i => { if (!insGrp[i.tipo]) insGrp[i.tipo]=[]; insGrp[i.tipo].push(i); });
 
-    // === KPIs ===
-    const nCriticosFab = fabAll.filter(p => p.urgencia >= 2).length;
-    const nCriticosCompra = compraAll.filter(p => p.urgencia >= 2).length;
-    const nInsumosComprar = insumosCompra.length;
-    const nDiscontinuados = discontinuados.length;
-    const stockDiscVal = discontinuados.reduce((s, p) => s + (p.stock || 0), 0);
+    // ══════════════════════════════════════════
+    // 7. KPIs
+    // ══════════════════════════════════════════
+    const nFabTotal = fabActivos.length;
+    const nFabConBOM = fabActivos.filter(p => p.hasBOM).length;
+    const nFabSinBOM = nFabTotal - nFabConBOM;
+    const nFabUrg = fabActivos.filter(p => p.urg >= 2).length;
+    const nCompUrg = compraTop.filter(p => p.urg >= 2).length;
+    const cobClr = d => d < 30 ? 'var(--red)' : d < 60 ? 'var(--orange)' : d < 90 ? 'var(--gold)' : 'var(--green)';
+    const tLabel = { frasco:'🧴 Frascos',estuche:'📦 Estuches',esencia:'💧 Esencias',tapa:'🔲 Tapas',collar:'⭕ Collares',valvula:'🔧 Válvulas',otro:'📋 Otros' };
+    const fmtDate = d => d ? d.toLocaleDateString('es-AR', { day:'2-digit', month:'short' }) : '-';
 
-    const cobColor = (d) => d < 30 ? 'var(--red)' : d < 60 ? 'var(--orange)' : d < 90 ? 'var(--gold)' : 'var(--green)';
-    const tipoLabel = { frasco: '🧴 Frascos', estuche: '📦 Estuches', esencia: '💧 Esencias', tapa: '🔲 Tapas', collar: '⭕ Collares', valvula: '🔧 Válvulas', otro: '📋 Otros' };
+    // Top 40 for display
+    const fabTop = fabActivos.slice(0, 40);
 
     c.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
@@ -1776,270 +1867,221 @@ async function renderMRPPage(c) {
       </div>
 
       <div class="kpi-row" style="margin-bottom:10px;">
-        <div class="kpi" style="cursor:pointer;" onclick="showMrpTab('fab')"><div class="num" style="color:${nCriticosFab > 0 ? 'var(--red)' : 'var(--green)'}">${nCriticosFab}</div><div class="label">Fab. a producir</div></div>
-        <div class="kpi" style="cursor:pointer;" onclick="showMrpTab('insumos')"><div class="num" style="color:${nInsumosComprar > 0 ? 'var(--orange)' : 'var(--green)'}">${nInsumosComprar}</div><div class="label">Insumos a comprar</div></div>
-        <div class="kpi" style="cursor:pointer;" onclick="showMrpTab('compra')"><div class="num" style="color:${nCriticosCompra > 0 ? 'var(--violet)' : 'var(--green)'}">${nCriticosCompra}</div><div class="label">PT a comprar</div></div>
-        <div class="kpi" style="cursor:pointer;" onclick="showMrpTab('disc')"><div class="num" style="color:var(--txt2)">${nDiscontinuados}</div><div class="label">Discontinuados</div></div>
+        <div class="kpi" style="cursor:pointer;" onclick="showMrpTab('fab')"><div class="num" style="color:${nFabUrg>0?'var(--red)':'var(--green)'}">${nFabUrg}</div><div class="label">Fab. urgentes</div></div>
+        <div class="kpi" style="cursor:pointer;" onclick="showMrpTab('ins')"><div class="num" style="color:${insCompra.length>0?'var(--orange)':'var(--green)'}">${insCompra.length}</div><div class="label">Insumos a comprar</div></div>
+        <div class="kpi" style="cursor:pointer;" onclick="showMrpTab('cmp')"><div class="num" style="color:${nCompUrg>0?'var(--violet)':'var(--green)'}">${nCompUrg}</div><div class="label">Compra urgentes</div></div>
+        <div class="kpi"><div class="num">${nFabTotal}</div><div class="label">PT Fabricación</div></div>
+        <div class="kpi"><div class="num" style="color:var(--green)">${nBOM} BOM</div><div class="label">${nFabSinBOM > 0 ? nFabSinBOM+' sin fórmula' : 'Todos con fórmula'}</div></div>
       </div>
 
-      <div style="color:var(--txt2);font-size:11px;margin-bottom:12px;background:var(--bg3);padding:8px 12px;border-radius:6px;">
-        <strong>Política de cobertura:</strong> PT fabricación: ${COB_TARGET_PT}d stock + ${COB_TARGET_INSUMO}d insumos = ${COB_PIPELINE}d pipeline total |
-        Compra directa: cobertura ≥ lead time de marca |
-        Ranking por <strong>forecast mensual</strong> (o promedio de venta si no hay forecast)
+      <div style="color:var(--txt2);font-size:11px;margin-bottom:10px;background:var(--bg3);padding:8px 12px;border-radius:6px;">
+        <strong>Política:</strong> Cob. PT ${COB_PT}d + Cob. insumos ${COB_INS}d = ${COB_PIPE}d pipeline |
+        Demanda = MAX(forecast, vta promedio) | Ranking por demanda |
+        Excluidos: ${[...MARCAS_DISC].join(', ')} |
+        ${Object.keys(COMPRA_EXT_LT).join(', ')}: compra exterior LT ${Object.values(COMPRA_EXT_LT).join(',')}d
       </div>
 
       <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-        <button class="btn-gold btn-sm" onclick="showMrpTab('fab')" id="mrpTabFab">🏭 Fabricación (${fabTop.length})</button>
-        <button class="btn-outline btn-sm" onclick="showMrpTab('insumos')" id="mrpTabInsumos">🛒 Insumos (${insumosCompra.length})</button>
-        <button class="btn-outline btn-sm" onclick="showMrpTab('compra')" id="mrpTabCompra">🛍️ Compra directa (${compraTop.length})</button>
-        <button class="btn-outline btn-sm" onclick="showMrpTab('disc')" id="mrpTabDisc" style="opacity:0.7;">📦 Discontinuados (${nDiscontinuados})</button>
+        <button class="btn-gold btn-sm" onclick="showMrpTab('fab')" id="mrpBtnFab">🏭 Fabricación (${nFabTotal})</button>
+        <button class="btn-outline btn-sm" onclick="showMrpTab('ins')" id="mrpBtnIns">🛒 Insumos (${insCompra.length})</button>
+        <button class="btn-outline btn-sm" onclick="showMrpTab('cmp')" id="mrpBtnCmp">🛍️ Compra (${compraTop.length})</button>
+        <button class="btn-outline btn-sm" onclick="showMrpTab('dsc')" id="mrpBtnDsc" style="opacity:0.7;">📦 Disc. (${discProds.length})</button>
       </div>
 
-      <!-- ═══ TAB: FABRICACIÓN ═══ -->
-      <div id="mrpTabFabContent" class="card">
+      <!-- ═══ FABRICACIÓN ═══ -->
+      <div id="mrpPnlFab" class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <h3 style="color:var(--gold);">Plan de Producción — Top ${fabTop.length} por forecast</h3>
-          <select id="mrpFabFilterMarca" onchange="filterMrpFab()" style="width:auto;min-width:150px;font-size:12px;">
-            <option value="">Todas las marcas</option>
-            ${[...new Set(fabTop.map(p => p.marca))].sort().map(m => `<option value="${m}">${m}</option>`).join('')}
-          </select>
+          <h3 style="color:var(--gold);">Plan de Producción — Top ${fabTop.length} de ${nFabTotal} por demanda</h3>
+          <div style="display:flex;gap:6px;">
+            <select id="mrpFiltFab" onchange="filterMrpFab()" style="width:auto;min-width:150px;font-size:12px;">
+              <option value="">Todas las marcas</option>
+              ${[...new Set(fabTop.filter(p=>p.marca).map(p=>p.marca))].sort().map(m=>`<option value="${m}">${m}</option>`).join('')}
+            </select>
+            <select id="mrpFiltUrgFab" onchange="filterMrpFab()" style="width:auto;min-width:120px;font-size:12px;">
+              <option value="">Todas acciones</option>
+              <option value="3">🔴 Producir ya</option>
+              <option value="2">🟡 Planificar</option>
+              <option value="1">🟠 Comprar ins.</option>
+              <option value="0">🟢 OK</option>
+            </select>
+          </div>
         </div>
         <p style="color:var(--txt2);font-size:11px;margin-bottom:8px;">
-          <strong>Cob.PT</strong> = stock actual ÷ demanda diaria.
-          <strong>Cob.Total</strong> = (stock + prod.planif. + producibles con insumos actuales) ÷ demanda diaria.
-          Target: <span style="color:var(--green);">${COB_TARGET_PT}d PT</span> + <span style="color:var(--green);">${COB_TARGET_INSUMO}d insumos</span> = ${COB_PIPELINE}d pipeline.
+          ${nFabConBOM} productos con BOM (producibles calculados) + ${nFabSinBOM} de marcas fabricación sin BOM.
+          <strong>Producibles</strong> = mín. componente BOM. <strong>Quiebre</strong> = fecha rotura stock PT. Target: ${COB_PT}d PT + ${COB_INS}d insumos.
         </p>
         ${fabTop.length === 0
-          ? `<p style="color:var(--txt2);padding:20px;text-align:center;">No se encontraron productos de fabricación con demanda activa.<br>
-             <small>Total productos: ${allProducts.length} | Con BOM: ${new Set(bomData.map(b=>b.codigo_principal)).size} | Datos: ${bomData.length} componentes, ${insumosData.length} insumos</small></p>`
+          ? `<p style="color:var(--txt2);padding:20px;text-align:center;">
+              No se encontraron productos de fabricación. Verificar que config_marcas tenga tipo_abastecimiento='fabricacion' y/o que haya datos en BOM.
+              <br><small>Marcas fab configuradas: ${[...marcasFab].join(', ') || 'ninguna'}</small>
+            </p>`
           : `
           <div style="overflow-x:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;" id="mrpFabTable">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;" id="mrpTblFab">
               <thead><tr style="border-bottom:2px solid var(--border);background:var(--bg3);">
-                <th style="padding:5px 6px;text-align:left;width:30px;">#</th>
-                <th style="padding:5px 6px;text-align:left;">Código</th>
-                <th style="padding:5px 6px;text-align:left;">Producto</th>
-                <th style="padding:5px 6px;text-align:left;">Marca</th>
-                <th style="padding:5px 6px;text-align:right;" title="Forecast mensual o promedio de venta">Fcst/mes</th>
-                <th style="padding:5px 6px;text-align:right;">Stock PT</th>
-                <th style="padding:5px 6px;text-align:right;" title="Unidades fabricables con insumos actuales (mín. entre componentes BOM)">Producibles</th>
-                <th style="padding:5px 6px;text-align:right;" title="Producciones ya planificadas">Prod.Plan.</th>
-                <th style="padding:5px 6px;text-align:center;" title="Días de cobertura solo con stock PT">Cob.PT</th>
-                <th style="padding:5px 6px;text-align:center;" title="Días cobertura total: stock + prod. + producibles">Cob.Total</th>
-                <th style="padding:5px 6px;text-align:center;">Acción</th>
-                <th style="padding:5px 6px;text-align:left;" title="Insumo que limita la producción">Cuello botella</th>
-              </tr></thead>
-              <tbody>
+                <th style="padding:5px 4px;text-align:left;width:24px;">#</th>
+                <th style="padding:5px 4px;text-align:left;">Código</th>
+                <th style="padding:5px 4px;text-align:left;">Producto</th>
+                <th style="padding:5px 4px;text-align:left;">Marca</th>
+                <th style="padding:5px 4px;text-align:right;">Demanda/mes</th>
+                <th style="padding:5px 4px;text-align:right;">Stock PT</th>
+                <th style="padding:5px 4px;text-align:right;" title="Uds producibles con insumos actuales (solo si tiene BOM)">Produc.</th>
+                <th style="padding:5px 4px;text-align:right;">Prod.Plan</th>
+                <th style="padding:5px 4px;text-align:right;">Disponible</th>
+                <th style="padding:5px 4px;text-align:center;">Cob.PT</th>
+                <th style="padding:5px 4px;text-align:center;">Cob.Total</th>
+                <th style="padding:5px 4px;text-align:center;" title="Fecha estimada rotura stock PT">Quiebre</th>
+                <th style="padding:5px 4px;text-align:center;">Acción</th>
+                <th style="padding:5px 4px;text-align:left;">Cuello botella</th>
+              </tr></thead><tbody>
               ${fabTop.map((p, i) => `
-                <tr style="border-bottom:1px solid var(--border);${p.urgencia >= 3 ? 'background:rgba(255,50,50,0.08);' : p.urgencia >= 2 ? 'background:rgba(255,165,0,0.05);' : ''}" data-marca="${p.marca}">
-                  <td style="padding:4px 6px;color:var(--txt2);font-size:10px;">${i+1}</td>
-                  <td style="padding:4px 6px;font-family:monospace;font-size:11px;">${p.codigo}</td>
-                  <td style="padding:4px 6px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombre}">${(p.nombre||'').substring(0,28)}</td>
-                  <td style="padding:4px 6px;font-size:11px;">${p.marca}</td>
-                  <td style="padding:4px 6px;text-align:right;font-weight:bold;">${Math.round(p.demanda).toLocaleString()}</td>
-                  <td style="padding:4px 6px;text-align:right;color:${p.stock <= 0 ? 'var(--red)' : 'var(--txt)'};">${Math.round(p.stock).toLocaleString()}</td>
-                  <td style="padding:4px 6px;text-align:right;color:${p.producibles <= 0 ? 'var(--red)' : 'var(--green)'};">${Math.round(p.producibles).toLocaleString()}</td>
-                  <td style="padding:4px 6px;text-align:right;color:${p.prodPlanif > 0 ? 'var(--green)' : 'var(--txt2)'};">${p.prodPlanif > 0 ? Math.round(p.prodPlanif).toLocaleString() : '-'}</td>
-                  <td style="padding:4px 6px;text-align:center;font-weight:bold;color:${cobColor(p.cobPT)};">${p.cobPT >= 999 ? '∞' : p.cobPT+'d'}</td>
-                  <td style="padding:4px 6px;text-align:center;font-weight:bold;color:${cobColor(p.cobTotal)};">${p.cobTotal >= 999 ? '∞' : p.cobTotal+'d'}</td>
-                  <td style="padding:4px 6px;text-align:center;font-size:11px;white-space:nowrap;">${p.accion}</td>
-                  <td style="padding:4px 6px;font-size:10px;color:var(--txt2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.cuelloBotella ? p.cuelloBotella.detalle+' (stk:'+p.cuelloBotella.stock+', rinde:'+p.cuelloBotella.posibles+')' : ''}">${p.cuelloBotella ? (p.cuelloBotella.detalle||p.cuelloBotella.codigo).substring(0,20) + ' → ' + p.cuelloBotella.posibles + ' uds' : '-'}</td>
+                <tr style="border-bottom:1px solid var(--border);${p.urg>=3?'background:rgba(255,50,50,0.08);':p.urg>=2?'background:rgba(255,165,0,0.05);':''}" data-marca="${p.marca}" data-urg="${p.urg}">
+                  <td style="padding:3px 4px;color:var(--txt2);font-size:10px;">${i+1}</td>
+                  <td style="padding:3px 4px;font-family:monospace;font-size:10px;">${p.codigo}</td>
+                  <td style="padding:3px 4px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombre}${!p.hasBOM?' (sin BOM)':''}">${(p.nombre||'').substring(0,25)}${!p.hasBOM?' <span style=color:var(--orange);font-size:9px;>∅BOM</span>':''}</td>
+                  <td style="padding:3px 4px;font-size:10px;">${p.marca||'?'}</td>
+                  <td style="padding:3px 4px;text-align:right;font-weight:bold;">${p.demanda>0?Math.round(p.demanda).toLocaleString():'<span style=color:var(--txt2)>-</span>'}</td>
+                  <td style="padding:3px 4px;text-align:right;color:${p.stock<=0?'var(--red)':'var(--txt)'};">${Math.round(p.stock).toLocaleString()}</td>
+                  <td style="padding:3px 4px;text-align:right;color:${p.producibles<=0?(p.hasBOM?'var(--red)':'var(--txt2)'):'var(--green)'};">${p.hasBOM?Math.round(p.producibles).toLocaleString():'-'}</td>
+                  <td style="padding:3px 4px;text-align:right;color:${p.prod>0?'var(--green)':'var(--txt2)'};">${p.prod>0?Math.round(p.prod).toLocaleString():'-'}</td>
+                  <td style="padding:3px 4px;text-align:right;font-weight:bold;">${Math.round(p.disponible).toLocaleString()}</td>
+                  <td style="padding:3px 4px;text-align:center;font-weight:bold;color:${cobClr(p.cobPT)};">${p.cobPT>=999?'∞':p.cobPT+'d'}</td>
+                  <td style="padding:3px 4px;text-align:center;font-weight:bold;color:${cobClr(p.cobTot)};">${p.cobTot>=999?'∞':p.cobTot+'d'}</td>
+                  <td style="padding:3px 4px;text-align:center;font-size:10px;color:${p.cobPT<60?'var(--red)':'var(--txt2)'};">${p.quiebrePT && p.cobPT<999 ? fmtDate(p.quiebrePT) : '-'}</td>
+                  <td style="padding:3px 4px;text-align:center;font-size:11px;white-space:nowrap;">${p.accion}</td>
+                  <td style="padding:3px 4px;font-size:9px;color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.cuello?p.cuello.det+' (stk:'+p.cuello.stk+', rinde:'+p.cuello.rinde+')':''}">${p.cuello?(p.cuello.det||p.cuello.cod).substring(0,18)+' →'+p.cuello.rinde:(p.hasBOM?'-':'')}</td>
                 </tr>
               `).join('')}
-              </tbody>
-            </table>
+              </tbody></table>
           </div>
-          <p style="color:var(--txt2);font-size:10px;margin-top:8px;">
-            Mostrando top ${fabTop.length} de ${fabAll.length} productos de fabricación activos.
-            Excluidos: ${MARCAS_DISCONTINUADAS.join(', ')}.
-            ${Object.keys(MARCAS_COMPRA_EXTERIOR).join(', ')} → pestaña Compra directa.
+          <p style="color:var(--txt2);font-size:10px;margin-top:6px;">
+            Mostrando top ${fabTop.length} de ${nFabTotal} productos fabricación (${nFabConBOM} con BOM, ${nFabSinBOM} sin BOM).
+            Marcas fab: ${[...marcasFab].join(', ') || 'config pendiente'}.
           </p>`
         }
       </div>
 
-      <!-- ═══ TAB: INSUMOS A COMPRAR ═══ -->
-      <div id="mrpTabInsumosContent" class="card" style="display:none;">
+      <!-- ═══ INSUMOS ═══ -->
+      <div id="mrpPnlIns" class="card" style="display:none;">
         <h3 style="color:var(--gold);margin-bottom:4px;">Necesidades de Insumos</h3>
         <p style="color:var(--txt2);font-size:11px;margin-bottom:8px;">
-          Demanda calculada para cubrir ${COB_PIPELINE} días de pipeline (${COB_TARGET_PT}d PT + ${COB_TARGET_INSUMO}d producción).
-          🔗 = insumo compartido entre varios PT (demanda agregada). Hover en "PTs" para ver detalle.
+          Para cubrir ${COB_PIPE}d de pipeline. 🔗 = insumo compartido entre PTs (demanda agregada).
         </p>
-        ${insumosCompra.length === 0
-          ? '<p style="color:var(--green);padding:20px;text-align:center;">✅ Insumos cubiertos para el pipeline actual.</p>'
-          : Object.entries(insGrp).map(([tipo, items]) => `
-          <div style="margin-bottom:16px;">
-            <h4 style="margin-bottom:6px;font-size:13px;">${tipoLabel[tipo] || tipo} — ${items.length} insumos | LT típico: ${tipo === 'frasco' ? '4.5m' : tipo === 'estuche' ? '4m' : tipo === 'esencia' ? '1.5m' : '3m'}</h4>
+        ${insCompra.length===0
+          ? '<p style="color:var(--green);padding:20px;text-align:center;">✅ Insumos cubiertos para los próximos '+COB_PIPE+' días.</p>'
+          : Object.entries(insGrp).map(([tipo,items])=>`
+          <div style="margin-bottom:14px;">
+            <h4 style="margin-bottom:4px;font-size:13px;">${tLabel[tipo]||tipo} — ${items.length} items</h4>
             <table style="width:100%;border-collapse:collapse;font-size:12px;">
               <thead><tr style="border-bottom:2px solid var(--border);background:var(--bg3);">
-                <th style="padding:5px 6px;text-align:left;">Código</th>
-                <th style="padding:5px 6px;text-align:left;">Insumo</th>
-                <th style="padding:5px 6px;text-align:right;">Stock actual</th>
-                <th style="padding:5px 6px;text-align:right;">Necesidad</th>
-                <th style="padding:5px 6px;text-align:right;color:var(--red);">A comprar</th>
-                <th style="padding:5px 6px;text-align:right;">LT</th>
-                <th style="padding:5px 6px;text-align:left;">PTs que demandan</th>
-              </tr></thead>
-              <tbody>
-              ${items.map(i => `
+                <th style="padding:4px 6px;text-align:left;">Código</th><th style="padding:4px 6px;text-align:left;">Insumo</th>
+                <th style="padding:4px 6px;text-align:right;">Stock</th><th style="padding:4px 6px;text-align:right;">Necesidad</th>
+                <th style="padding:4px 6px;text-align:right;color:var(--red);">Comprar</th><th style="padding:4px 6px;text-align:right;">LT</th>
+                <th style="padding:4px 6px;text-align:left;">PTs</th>
+              </tr></thead><tbody>
+              ${items.map(i=>`
                 <tr style="border-bottom:1px solid var(--border);">
-                  <td style="padding:4px 6px;font-family:monospace;font-size:11px;">${i.codigo}${i.shared ? ' 🔗' : ''}</td>
-                  <td style="padding:4px 6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${i.detalle}">${(i.detalle||'').substring(0,35)}</td>
-                  <td style="padding:4px 6px;text-align:right;">${Math.round(i.stock).toLocaleString()}</td>
-                  <td style="padding:4px 6px;text-align:right;">${i.demanda.toLocaleString()}</td>
-                  <td style="padding:4px 6px;text-align:right;color:var(--red);font-weight:bold;">${i.comprar.toLocaleString()}</td>
-                  <td style="padding:4px 6px;text-align:right;">${Math.round(i.lt_dias/30*10)/10}m</td>
-                  <td style="padding:4px 6px;font-size:10px;color:var(--txt2);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${i.ptsInfo.map(pt=>pt.codigo+' '+pt.nombre+' (deficit:'+pt.deficit+', ins:'+pt.demIns+')').join('\n')}">${i.nPTs} PT${i.nPTs>1?'s':''}: ${i.ptsInfo.slice(0,3).map(pt=>pt.codigo).join(', ')}${i.nPTs>3?'...':''}</td>
-                </tr>
-              `).join('')}
-              </tbody>
-            </table>
-          </div>
-        `).join('')}
+                  <td style="padding:3px 6px;font-family:monospace;font-size:10px;">${i.cod}${i.sh?' 🔗':''}</td>
+                  <td style="padding:3px 6px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${i.det}">${(i.det||'').substring(0,30)}</td>
+                  <td style="padding:3px 6px;text-align:right;">${Math.round(i.stk).toLocaleString()}</td>
+                  <td style="padding:3px 6px;text-align:right;">${i.dem.toLocaleString()}</td>
+                  <td style="padding:3px 6px;text-align:right;color:var(--red);font-weight:bold;">${i.buy.toLocaleString()}</td>
+                  <td style="padding:3px 6px;text-align:right;">${Math.round(i.lt/30*10)/10}m</td>
+                  <td style="padding:3px 6px;font-size:9px;color:var(--txt2);" title="${i.info.map(pt=>pt.cod+' '+pt.nom+' def:'+pt.def).join('\n')}">${i.n}PT: ${i.info.slice(0,3).map(pt=>pt.cod).join(',')}${i.n>3?'...':''}</td>
+                </tr>`).join('')}
+              </tbody></table></div>`).join('')}
       </div>
 
-      <!-- ═══ TAB: COMPRA DIRECTA ═══ -->
-      <div id="mrpTabCompraContent" class="card" style="display:none;">
+      <!-- ═══ COMPRA DIRECTA ═══ -->
+      <div id="mrpPnlCmp" class="card" style="display:none;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <h3 style="color:var(--gold);">Compra Directa — Top ${compraTop.length} por forecast</h3>
-          <select id="mrpCompraFilterMarca" onchange="filterMrpCompra()" style="width:auto;min-width:150px;font-size:12px;">
+          <h3 style="color:var(--gold);">Compra Directa / Exterior — ${compraTop.length} productos</h3>
+          <select id="mrpFiltCmp" onchange="filterMrpCompra()" style="width:auto;min-width:150px;font-size:12px;">
             <option value="">Todas las marcas</option>
-            ${[...new Set(compraTop.map(p => p.marca))].sort().map(m => `<option value="${m}">${m}</option>`).join('')}
+            ${[...new Set(compraTop.map(p=>p.marca))].sort().map(m=>`<option value="${m}">${m}</option>`).join('')}
           </select>
         </div>
-        <p style="color:var(--txt2);font-size:11px;margin-bottom:8px;">
-          PT sin BOM + Fascino (full service exterior, LT ${MARCAS_COMPRA_EXTERIOR['Fascino']||150}d).
-          Cobertura target = lead time de la marca. Árabes ~6m, Elizabeth Arden ~4m.
-        </p>
-        ${compraTop.length === 0
-          ? '<p style="color:var(--txt2);padding:20px;text-align:center;">No hay productos de compra con demanda activa.</p>'
-          : `
-          <div style="overflow-x:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;" id="mrpCompraTable">
-              <thead><tr style="border-bottom:2px solid var(--border);background:var(--bg3);">
-                <th style="padding:5px 6px;text-align:left;">#</th>
-                <th style="padding:5px 6px;text-align:left;">Código</th>
-                <th style="padding:5px 6px;text-align:left;">Producto</th>
-                <th style="padding:5px 6px;text-align:left;">Marca</th>
-                <th style="padding:5px 6px;text-align:right;">Fcst/mes</th>
-                <th style="padding:5px 6px;text-align:right;">Stock</th>
-                <th style="padding:5px 6px;text-align:center;">Cob.</th>
-                <th style="padding:5px 6px;text-align:right;">LT</th>
-                <th style="padding:5px 6px;text-align:right;" title="Demanda durante lead time">Nec. LT</th>
-                <th style="padding:5px 6px;text-align:center;">Acción</th>
-              </tr></thead>
-              <tbody>
-              ${compraTop.map((p, i) => {
-                const ltDias = p.tipo === 'compra_exterior'
-                  ? (MARCAS_COMPRA_EXTERIOR[p.marca] || MARCAS_COMPRA_EXTERIOR[Object.keys(MARCAS_COMPRA_EXTERIOR).find(k => k.toUpperCase() === (p.marca||'').toUpperCase())] || 150)
-                  : (marcaLT[p.marca] || 90);
-                const necLT = Math.round(p.demandaDia * ltDias);
-                const comprar = Math.max(0, necLT - p.stock);
-                return `
-                <tr style="border-bottom:1px solid var(--border);${p.urgencia >= 3 ? 'background:rgba(255,50,50,0.08);' : p.urgencia >= 2 ? 'background:rgba(255,165,0,0.05);' : ''}" data-marca="${p.marca}">
-                  <td style="padding:4px 6px;color:var(--txt2);font-size:10px;">${i+1}</td>
-                  <td style="padding:4px 6px;font-family:monospace;font-size:11px;">${p.codigo}</td>
-                  <td style="padding:4px 6px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombre}">${(p.nombre||'').substring(0,28)}</td>
-                  <td style="padding:4px 6px;font-size:11px;">${p.marca}${p.tipo === 'compra_exterior' ? ' ✈️' : ''}</td>
-                  <td style="padding:4px 6px;text-align:right;font-weight:bold;">${Math.round(p.demanda).toLocaleString()}</td>
-                  <td style="padding:4px 6px;text-align:right;color:${p.stock <= 0 ? 'var(--red)' : 'var(--txt)'};">${Math.round(p.stock).toLocaleString()}</td>
-                  <td style="padding:4px 6px;text-align:center;font-weight:bold;color:${cobColor(p.cobPT)};">${p.cobPT >= 999 ? '∞' : p.cobPT+'d'}</td>
-                  <td style="padding:4px 6px;text-align:right;">${Math.round(ltDias/30*10)/10}m</td>
-                  <td style="padding:4px 6px;text-align:right;">${necLT.toLocaleString()}${comprar > 0 ? ' <span style="color:var(--red);font-weight:bold;">(−'+comprar.toLocaleString()+')</span>' : ''}</td>
-                  <td style="padding:4px 6px;text-align:center;font-size:11px;white-space:nowrap;">${p.accion}</td>
-                </tr>`;
-              }).join('')}
-              </tbody>
-            </table>
-          </div>
-          <p style="color:var(--txt2);font-size:10px;margin-top:8px;">
-            Mostrando top ${compraTop.length} de ${compraAll.length} productos de compra activos.
-          </p>`
-        }
+        <p style="color:var(--txt2);font-size:11px;margin-bottom:8px;">Productos sin BOM y marcas de compra + Fascino ✈️ (full service exterior, LT 150d).</p>
+        ${compraTop.length===0?'<p style="color:var(--txt2);padding:20px;text-align:center;">Sin productos de compra directa con demanda.</p>':`
+        <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;" id="mrpTblCmp">
+          <thead><tr style="border-bottom:2px solid var(--border);background:var(--bg3);">
+            <th style="padding:5px 4px;">#</th><th style="padding:5px 4px;text-align:left;">Código</th><th style="padding:5px 4px;text-align:left;">Producto</th>
+            <th style="padding:5px 4px;text-align:left;">Marca</th><th style="padding:5px 4px;text-align:right;">Demanda/mes</th><th style="padding:5px 4px;text-align:right;">Stock</th>
+            <th style="padding:5px 4px;text-align:center;">Cob.</th><th style="padding:5px 4px;text-align:right;">LT</th>
+            <th style="padding:5px 4px;text-align:right;">Nec.LT</th><th style="padding:5px 4px;text-align:center;">Acción</th>
+          </tr></thead><tbody>
+          ${compraTop.map((p,i)=>{
+            const nec=Math.round(p.demDia*(p.lt||90));
+            const gap=Math.max(0,nec-(p.stock_actual||p.stock||0));
+            return `<tr style="border-bottom:1px solid var(--border);${p.urg>=3?'background:rgba(255,50,50,0.08);':p.urg>=2?'background:rgba(255,165,0,0.05);':''}" data-marca="${p.marca}">
+              <td style="padding:3px 4px;color:var(--txt2);font-size:10px;">${i+1}</td>
+              <td style="padding:3px 4px;font-family:monospace;font-size:10px;">${p.codigo}</td>
+              <td style="padding:3px 4px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombre}">${(p.nombre||'').substring(0,25)}</td>
+              <td style="padding:3px 4px;font-size:10px;">${p.marca}${p.isExt?' ✈️':''}</td>
+              <td style="padding:3px 4px;text-align:right;font-weight:bold;">${Math.round(p.demanda).toLocaleString()}</td>
+              <td style="padding:3px 4px;text-align:right;">${Math.round(p.stock_actual||p.stock||0).toLocaleString()}</td>
+              <td style="padding:3px 4px;text-align:center;font-weight:bold;color:${cobClr(p.cobDias||p.cobPT||999)};">${(p.cobDias||p.cobPT||999)>=999?'∞':(p.cobDias||p.cobPT)+'d'}</td>
+              <td style="padding:3px 4px;text-align:right;">${Math.round((p.lt||90)/30*10)/10}m</td>
+              <td style="padding:3px 4px;text-align:right;">${nec.toLocaleString()}${gap>0?' <span style=color:var(--red);font-weight:bold>(−'+gap.toLocaleString()+')</span>':''}</td>
+              <td style="padding:3px 4px;text-align:center;font-size:11px;">${p.accion}</td>
+            </tr>`;}).join('')}
+          </tbody></table></div>`}
       </div>
 
-      <!-- ═══ TAB: DISCONTINUADOS ═══ -->
-      <div id="mrpTabDiscContent" class="card" style="display:none;">
-        <h3 style="color:var(--txt2);margin-bottom:4px;">📦 Productos Discontinuados / Baja rotación</h3>
-        <p style="color:var(--txt2);font-size:11px;margin-bottom:8px;">
-          Marcas excluidas del plan activo: <strong>${MARCAS_DISCONTINUADAS.join(', ')}</strong>.
-          Stock remanente que requiere estrategia de liquidación o reasignación.
-        </p>
-        ${discontinuados.length === 0
-          ? '<p style="color:var(--txt2);padding:20px;text-align:center;">No hay productos de marcas discontinuadas en stock.</p>'
-          : `
-          <div style="background:var(--bg3);padding:10px 14px;border-radius:6px;margin-bottom:12px;">
-            <strong style="color:var(--gold);">${discontinuados.filter(p => p.stock > 0).length}</strong> SKUs con stock |
-            <strong style="color:var(--orange);">${Math.round(stockDiscVal).toLocaleString()}</strong> unidades totales en stock |
-            <strong>${discontinuados.filter(p => p.demanda > 0).length}</strong> aún con demanda residual
-          </div>
-          <div style="overflow-x:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-              <thead><tr style="border-bottom:2px solid var(--border);background:var(--bg3);">
-                <th style="padding:5px 6px;text-align:left;">Código</th>
-                <th style="padding:5px 6px;text-align:left;">Producto</th>
-                <th style="padding:5px 6px;text-align:left;">Marca</th>
-                <th style="padding:5px 6px;text-align:right;">Stock</th>
-                <th style="padding:5px 6px;text-align:right;">Vta. residual</th>
-                <th style="padding:5px 6px;text-align:center;">Cob. si vende</th>
-                <th style="padding:5px 6px;text-align:left;">Sugerencia</th>
-              </tr></thead>
-              <tbody>
-              ${discontinuados.filter(p => p.stock > 0).sort((a,b) => b.stock - a.stock).map(p => {
-                const sug = p.demanda > 0 ? (p.cobPT > 180 ? 'Liquidar excedente' : 'Vender stock natural') : 'Liquidar / donar / destruir';
-                return `
-                <tr style="border-bottom:1px solid var(--border);">
-                  <td style="padding:4px 6px;font-family:monospace;font-size:11px;">${p.codigo}</td>
-                  <td style="padding:4px 6px;" title="${p.nombre}">${(p.nombre||'').substring(0,30)}</td>
-                  <td style="padding:4px 6px;">${p.marca}</td>
-                  <td style="padding:4px 6px;text-align:right;font-weight:bold;">${Math.round(p.stock).toLocaleString()}</td>
-                  <td style="padding:4px 6px;text-align:right;color:${p.demanda > 0 ? 'var(--txt)' : 'var(--txt2)'};">${p.demanda > 0 ? Math.round(p.demanda).toLocaleString() : '-'}</td>
-                  <td style="padding:4px 6px;text-align:center;color:var(--txt2);">${p.demanda > 0 ? p.cobPT+'d' : '-'}</td>
-                  <td style="padding:4px 6px;font-size:11px;color:var(--txt2);">${sug}</td>
-                </tr>`;
-              }).join('')}
-              </tbody>
-            </table>
-          </div>`
-        }
+      <!-- ═══ DISCONTINUADOS ═══ -->
+      <div id="mrpPnlDsc" class="card" style="display:none;">
+        <h3 style="color:var(--txt2);margin-bottom:4px;">📦 Discontinuados</h3>
+        <p style="color:var(--txt2);font-size:11px;margin-bottom:8px;">Marcas: ${[...MARCAS_DISC].join(', ')}. Requieren estrategia de liquidación.</p>
+        ${discProds.length===0?'<p style="padding:20px;text-align:center;color:var(--txt2);">Sin stock de discontinuados.</p>':`
+        <div style="background:var(--bg3);padding:8px 12px;border-radius:6px;margin-bottom:10px;">
+          <strong style="color:var(--gold);">${discProds.filter(p=>(p.stock_actual||0)>0).length}</strong> SKUs con stock |
+          <strong style="color:var(--orange);">${discProds.reduce((s,p)=>s+(p.stock_actual||0),0).toLocaleString()}</strong> uds totales
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr style="border-bottom:2px solid var(--border);background:var(--bg3);">
+            <th style="padding:5px 6px;text-align:left;">Código</th><th style="padding:5px 6px;text-align:left;">Producto</th><th style="padding:5px 6px;">Marca</th>
+            <th style="padding:5px 6px;text-align:right;">Stock</th><th style="padding:5px 6px;text-align:right;">Vta.res.</th><th style="padding:5px 6px;">Sugerencia</th>
+          </tr></thead><tbody>
+          ${discProds.sort((a,b)=>(b.stock_actual||0)-(a.stock_actual||0)).map(p=>{
+            const dem=Math.max(p.forecast_proximo_mes||0,p.venta_mensual_avg||0);
+            const sug=dem>0?(((p.stock_actual||0)/dem*30)>180?'Liquidar excedente':'Venta natural'):'Liquidar/donar';
+            return `<tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:3px 6px;font-family:monospace;font-size:10px;">${p.codigo}</td>
+              <td style="padding:3px 6px;">${(p.nombre||'').substring(0,30)}</td><td style="padding:3px 6px;">${p.marca}</td>
+              <td style="padding:3px 6px;text-align:right;font-weight:bold;">${Math.round(p.stock_actual||0).toLocaleString()}</td>
+              <td style="padding:3px 6px;text-align:right;">${dem>0?Math.round(dem).toLocaleString():'-'}</td>
+              <td style="padding:3px 6px;font-size:11px;color:var(--txt2);">${sug}</td>
+            </tr>`;}).join('')}
+          </tbody></table>`}
       </div>
     `;
   } catch (e) {
-    c.innerHTML = `
-      <div class="card" style="text-align:center;padding:40px;">
-        <h3 style="color:var(--red);margin-bottom:12px;">Error cargando MRP</h3>
-        <p style="color:var(--txt2);margin-bottom:8px;">${e.message}</p>
-        <button class="btn-outline" style="margin-top:12px;" onclick="renderMRPPage(document.getElementById('tabContent'))">Reintentar</button>
-      </div>
-    `;
+    c.innerHTML = `<div class="card" style="text-align:center;padding:40px;"><h3 style="color:var(--red);">Error MRP</h3><p style="color:var(--txt2);">${e.message}</p>
+      <button class="btn-outline" style="margin-top:12px;" onclick="renderMRPPage(document.getElementById('tabContent'))">Reintentar</button></div>`;
   }
 }
 
-function showMrpTab(tab) {
-  const tabs = {
-    fab: { content: 'mrpTabFabContent', btn: 'mrpTabFab' },
-    insumos: { content: 'mrpTabInsumosContent', btn: 'mrpTabInsumos' },
-    compra: { content: 'mrpTabCompraContent', btn: 'mrpTabCompra' },
-    disc: { content: 'mrpTabDiscContent', btn: 'mrpTabDisc' }
-  };
-  Object.entries(tabs).forEach(([key, { content, btn }]) => {
-    const el = document.getElementById(content);
-    const b = document.getElementById(btn);
-    if (el) el.style.display = key === tab ? '' : 'none';
-    if (b) b.className = key === tab ? 'btn-gold btn-sm' : 'btn-outline btn-sm';
+function showMrpTab(t) {
+  ['fab','ins','cmp','dsc'].forEach(k => {
+    const p = document.getElementById('mrpPnl' + k.charAt(0).toUpperCase() + k.slice(1));
+    const b = document.getElementById('mrpBtn' + k.charAt(0).toUpperCase() + k.slice(1));
+    if (p) p.style.display = k === t ? '' : 'none';
+    if (b) b.className = k === t ? 'btn-gold btn-sm' : 'btn-outline btn-sm';
   });
 }
 
 function filterMrpCompra() {
-  const marca = document.getElementById('mrpCompraFilterMarca')?.value || '';
-  document.querySelectorAll('#mrpCompraTable tr[data-marca]').forEach(row => {
-    row.style.display = !marca || row.dataset.marca === marca ? '' : 'none';
-  });
+  const m = document.getElementById('mrpFiltCmp')?.value || '';
+  document.querySelectorAll('#mrpTblCmp tr[data-marca]').forEach(r => { r.style.display = !m || r.dataset.marca === m ? '' : 'none'; });
 }
 
 function filterMrpFab() {
-  const marca = document.getElementById('mrpFabFilterMarca')?.value || '';
-  document.querySelectorAll('#mrpFabTable tr[data-marca]').forEach(row => {
-    row.style.display = !marca || row.dataset.marca === marca ? '' : 'none';
+  const m = document.getElementById('mrpFiltFab')?.value || '';
+  const u = document.getElementById('mrpFiltUrgFab')?.value || '';
+  document.querySelectorAll('#mrpTblFab tr[data-marca]').forEach(r => {
+    const mOk = !m || r.dataset.marca === m;
+    const uOk = !u || r.dataset.urg === u;
+    r.style.display = mOk && uOk ? '' : 'none';
   });
 }
 
