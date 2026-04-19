@@ -5248,7 +5248,22 @@ async function renderSOPDashboard(c) {
     c.innerHTML = `<div style="color:var(--red);padding:40px;text-align:center;">Error cargando dashboard: ${err.message}</div>`;
   }
 }
+// =============================================
+// INIT
+// =============================================
+async function main() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) {
+    await initApp(session.user);
+  }
+  // Listen for auth changes
+  sb.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_IN' && session?.user) {
+      await initApp(session.user);
+    }
+  });
 }
+main();
 </script>
 </body>
 </html>
