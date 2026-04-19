@@ -728,6 +728,9 @@ function switchTab(tab) {
   viewingSolicitud = null;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   const c = document.getElementById('tabContent');
+  // Restore container width for non-MRP tabs
+  const container = c.closest('.container');
+  if (container && tab !== 'mrp') { container.style.maxWidth = '1200px'; container.style.padding = '20px'; }
   switch (tab) {
     case 'dashboard': renderDashboard(c); break;
     case 'solicitudes': renderSolicitudes(c); break;
@@ -1784,8 +1787,8 @@ async function renderMRPPage(c) {
                 || cat.includes('FRASCO') || cat.includes('ENVASE')) esFrasco = true;
             if (det.includes('ESTUCHE') || det.includes('CAJA') || det.includes('INTERIOR') || det.includes('DISPLAY')
                 || det.includes('PACKAGING') || cat.includes('ESTUCHE') || cat.includes('CAJA')) esEstuche = true;
-            if (det.includes('ESENCIA') || det.includes('FRAGANCIA') || det.includes('PERFUME') || det.includes('ACEITE')
-                || det.includes('COMPOUND') || det.includes('CONCENTRADO')
+            if (det.includes('ESENCIA') || det.includes('FRAGANCIA') || det.includes('PERFUME') || det.includes('PARFUM')
+                || det.includes('EAU DE') || det.includes('ACEITE') || det.includes('COMPOUND') || det.includes('CONCENTRADO')
                 || cat.includes('ESENCIA') || cat.includes('FRAGANCIA')) esEsencia = true;
           }
 
@@ -2002,6 +2005,10 @@ async function renderMRPPage(c) {
     // ALL products for display (sorted by demanda, top sellers first)
     const fabTop = fabActivos;
 
+    // Expand container for MRP wide tables
+    const container = c.closest('.container');
+    if (container) { container.style.maxWidth = '100%'; container.style.padding = '10px 16px'; }
+
     c.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <h2 style="color:var(--gold);font-size:20px;">🏭 MRP — Plan de Abastecimiento</h2>
@@ -2113,24 +2120,24 @@ async function renderMRPPage(c) {
               </thead><tbody>
               ${fabTop.map((p, i) => `
                 <tr style="border-bottom:1px solid var(--border);${i<40?'':'opacity:0.85;'}${p.urg>=3?'background:rgba(255,50,50,0.08);':p.urg>=2?'background:rgba(255,165,0,0.05);':''}" data-marca="${p.marca}" data-urg="${p.urg}">
-                  <td style="padding:2px 3px;font-family:monospace;font-size:9px;color:var(--txt2);" title="${p.codigo}">${p.codigo}</td>
-                  <td style="padding:2px 3px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombre}${!p.hasBOM?' (sin BOM)':''}">${(p.nombre||'').substring(0,22)}${!p.hasBOM?' <span style=color:var(--orange);font-size:8px;>∅</span>':''}</td>
-                  <td style="padding:2px 3px;font-size:9px;">${p.marca||'?'}</td>
-                  <td style="padding:2px 3px;text-align:right;font-weight:bold;">${p.vtaMes>0?Math.round(p.vtaMes).toLocaleString():'<span style=color:var(--txt2)>-</span>'}</td>
-                  <td style="padding:2px 3px;text-align:right;color:var(--txt2);">${p.vta3m>0?Math.round(p.vta3m).toLocaleString():'-'}</td>
-                  <td style="padding:2px 3px;text-align:right;color:${p.stock<=0?'var(--red)':'var(--txt)'};">${Math.round(p.stock).toLocaleString()}</td>
-                  <td style="padding:2px 3px;text-align:right;">${p.hasBOM?insNum(p.insBot):'-'}</td>
-                  <td style="padding:2px 3px;text-align:right;">${p.hasBOM?insNum(p.insEst):'-'}</td>
-                  <td style="padding:2px 3px;text-align:right;">${p.hasBOM?insNum(p.insEse):'-'}</td>
-                  <td style="padding:2px 3px;text-align:right;color:${p.producibles<=0?(p.hasBOM?'var(--red)':'var(--txt2)'):'var(--green)'};">${p.hasBOM?Math.round(p.producibles).toLocaleString():'-'}</td>
-                  <td style="padding:2px 3px;text-align:right;color:${p.prod>0?'var(--green)':'var(--txt2)'};">${p.prod>0?Math.round(p.prod).toLocaleString():'-'}</td>
-                  <td style="padding:2px 3px;text-align:center;font-size:9px;color:${p.fechaProd?'var(--gold)':'var(--txt2)'};">${fmtMes(p.fechaProd)}</td>
-                  <td style="padding:2px 3px;text-align:right;font-weight:bold;">${Math.round(p.disponible).toLocaleString()}</td>
-                  <td style="padding:2px 3px;text-align:center;font-weight:bold;color:${cobClr(p.cobPT)};">${p.cobPT>=999?'∞':p.cobPT+'d'}</td>
-                  <td style="padding:2px 3px;text-align:center;font-weight:bold;color:${cobClr(p.cobTot)};">${p.cobTot>=999?'∞':p.cobTot+'d'}</td>
-                  <td style="padding:2px 3px;text-align:center;font-size:9px;color:${p.cobPT<60?'var(--red)':'var(--txt2)'};">${p.quiebrePT && p.cobPT<999 ? fmtDate(p.quiebrePT) : '-'}</td>
-                  <td style="padding:2px 3px;text-align:center;font-size:10px;white-space:nowrap;">${p.accion}</td>
-                  <td style="padding:2px 3px;font-size:8px;color:var(--txt2);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.cuello?p.cuello.det+' (stk:'+p.cuello.stk+', rinde:'+p.cuello.rinde+')':''}">${p.cuello?(p.cuello.det||p.cuello.cod).substring(0,15)+' →'+p.cuello.rinde:(p.hasBOM?'-':'')}</td>
+                  <td style="padding:2px 4px;font-family:monospace;font-size:9px;color:var(--txt2);" title="${p.codigo}">${p.codigo}</td>
+                  <td style="padding:2px 4px;min-width:220px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombre}${!p.hasBOM?' (sin BOM)':''}">${(p.nombre||'').substring(0,38)}${!p.hasBOM?' <span style=color:var(--orange);font-size:8px;>∅</span>':''}</td>
+                  <td style="padding:2px 4px;font-size:9px;white-space:nowrap;">${p.marca||'?'}</td>
+                  <td style="padding:2px 4px;text-align:right;font-weight:bold;">${p.vtaMes>0?Math.round(p.vtaMes).toLocaleString():'<span style=color:var(--txt2)>-</span>'}</td>
+                  <td style="padding:2px 4px;text-align:right;color:var(--txt2);">${p.vta3m>0?Math.round(p.vta3m).toLocaleString():'-'}</td>
+                  <td style="padding:2px 4px;text-align:right;color:${p.stock<=0?'var(--red)':'var(--txt)'};">${Math.round(p.stock).toLocaleString()}</td>
+                  <td style="padding:2px 4px;text-align:right;">${p.hasBOM?insNum(p.insBot):'-'}</td>
+                  <td style="padding:2px 4px;text-align:right;">${p.hasBOM?insNum(p.insEst):'-'}</td>
+                  <td style="padding:2px 4px;text-align:right;">${p.hasBOM?insNum(p.insEse):'-'}</td>
+                  <td style="padding:2px 4px;text-align:right;color:${p.producibles<=0?(p.hasBOM?'var(--red)':'var(--txt2)'):'var(--green)'};">${p.hasBOM?Math.round(p.producibles).toLocaleString():'-'}</td>
+                  <td style="padding:2px 4px;text-align:right;color:${p.prod>0?'var(--green)':'var(--txt2)'};">${p.prod>0?Math.round(p.prod).toLocaleString():'-'}</td>
+                  <td style="padding:2px 4px;text-align:center;font-size:9px;color:${p.fechaProd?'var(--gold)':'var(--txt2)'};">${fmtMes(p.fechaProd)}</td>
+                  <td style="padding:2px 4px;text-align:right;font-weight:bold;">${Math.round(p.disponible).toLocaleString()}</td>
+                  <td style="padding:2px 4px;text-align:center;font-weight:bold;color:${cobClr(p.cobPT)};">${p.cobPT>=999?'∞':p.cobPT+'d'}</td>
+                  <td style="padding:2px 4px;text-align:center;font-weight:bold;color:${cobClr(p.cobTot)};">${p.cobTot>=999?'∞':p.cobTot+'d'}</td>
+                  <td style="padding:2px 4px;text-align:center;font-size:9px;color:${p.cobPT<60?'var(--red)':'var(--txt2)'};">${p.quiebrePT && p.cobPT<999 ? fmtDate(p.quiebrePT) : '-'}</td>
+                  <td style="padding:2px 4px;text-align:center;font-size:10px;white-space:nowrap;">${p.accion}</td>
+                  <td style="padding:2px 4px;font-size:8px;color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.cuello?p.cuello.det+' (stk:'+p.cuello.stk+', rinde:'+p.cuello.rinde+')':''}">${p.cuello?(p.cuello.det||p.cuello.cod).substring(0,18)+' →'+p.cuello.rinde:(p.hasBOM?'-':'')}</td>
                 </tr>
               `).join('')}
               </tbody></table>
