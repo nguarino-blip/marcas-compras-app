@@ -477,14 +477,15 @@ async function syncBOM(sheets, config, supabase) {
         fecha_sync: new Date().toISOString(),
       });
 
-      // Classify insumo type
+      // Classify insumo type based on DETALLE keywords
       let tipoGlobal = 'otro';
-      if (detUp.includes('ENVASE') || detUp.includes('FRASCO')) tipoGlobal = 'frasco';
-      else if (detUp.includes('CAJA') || detUp.includes('ESTUCHE') || detUp.includes('INTERIOR')) tipoGlobal = 'estuche';
-      else if (detUp.includes('ESENCIA') || detUp.includes('FRAGANCIA') || detUp.includes('PERFUME')) tipoGlobal = 'esencia';
+      if (detUp.includes('ENVASE') || detUp.includes('FRASCO') || detUp.includes('FLACON')) tipoGlobal = 'frasco';
+      else if (detUp.includes('CAJA') || detUp.includes('ESTUCHE') || detUp.includes('INTERIOR') || detUp.includes('DISPLAY')) tipoGlobal = 'estuche';
+      else if (detUp.includes('ESENCIA') || detUp.includes('FRAGANCIA') || detUp.includes('PERFUME') || detUp.includes('PARFUM') || detUp.includes('EAU DE') || detUp.includes('CONCENTRADO') || detUp.includes('COMPOUND')) tipoGlobal = 'esencia';
       else if (detUp.includes('TAPA')) tipoGlobal = 'tapa';
       else if (detUp.includes('COLLAR')) tipoGlobal = 'collar';
       else if (detUp.includes('VALVULA') || detUp.includes('PUMP') || detUp.includes('BOMBA')) tipoGlobal = 'valvula';
+      else if (detUp.includes('BLOTTER') || detUp.includes('ETIQUETA') || detUp.includes('STICKER')) tipoGlobal = 'otro';
 
       // Lead time by type (days)
       let leadTimeDias = 90; // default
@@ -508,13 +509,41 @@ async function syncBOM(sheets, config, supabase) {
     }
   }
 
-  // Upsert BOM in chunks
+  // Deduplicate BOM by (codigo_principal, codigo_insumo) — keep last occurrence (most complete data)
+  const bomDedup = {};
+  bomItems.forEach(item => {
+    const key = item.codigo_principal + '||' + item.codigo_insumo;
+    bomDedup[key] = item; // last wins
+  });
+  const bomUnique = Object.values(bomDedup);
+  console.log(`BOM: ${bomItems.length} raw rows → ${bomUnique.length} unique (principal,insumo) pairs from ${new Set(bomItems.map(b=>b.codigo_principal)).size} products`);
+
+  // Clear old BOM data and re-insert (avoids stale rows from previous syncs)
+  try {
+    await supabase.from('bom_productos').delete().gt('id', '00000000-0000-0000-0000-000000000000');
+    console.log('BOM: cleared old data');
+  } catch (e) { console.warn('BOM clear failed (non-fatal):', e.message); }
+
+  // Upsert BOM in small chunks (200) to avoid payload limits
   let bomCount = 0;
-  for (let i = 0; i < bomItems.length; i += 500) {
-    const chunk = bomItems.slice(i, i + 500);
+  const bomErrors = [];
+  for (let i = 0; i < bomUnique.length; i += 200) {
+    const chunk = bomUnique.slice(i, i + 200);
     const { error } = await supabase.from('bom_productos').upsert(chunk, { onConflict: 'codigo_principal,codigo_insumo' });
-    if (!error) bomCount += chunk.length;
-    else console.error('BOM upsert error:', error.message);
+    if (!error) {
+      bomCount += chunk.length;
+    } else {
+      console.error(`BOM upsert error (chunk ${Math.floor(i/200)+1}):`, error.message);
+      bomErrors.push({ chunk: Math.floor(i/200)+1, from: i, to: i+chunk.length, error: error.message });
+      // Try individual rows in failed chunk to find problematic ones
+      let rescued = 0;
+      for (const row of chunk) {
+        const { error: e2 } = await supabase.from('bom_productos').upsert([row], { onConflict: 'codigo_principal,codigo_insumo' });
+        if (!e2) rescued++;
+      }
+      bomCount += rescued;
+      console.log(`  Rescued ${rescued}/${chunk.length} rows from failed chunk`);
+    }
   }
 
   // Upsert stock_insumos
@@ -523,19 +552,28 @@ async function syncBOM(sheets, config, supabase) {
   const byTipo = {};
   insumoArr.forEach(i => { byTipo[i.tipo_insumo_global] = (byTipo[i.tipo_insumo_global] || 0) + 1; });
   console.log(`BOM insumos: ${insumoArr.length} unique, ${withStock} with stock > 0, types: ${JSON.stringify(byTipo)}`);
-  // Log sample insumos for debugging
-  const sample = insumoArr.filter(i => i.stock_fisico > 0).slice(0, 5);
-  if (sample.length > 0) console.log('Sample insumos with stock:', JSON.stringify(sample.map(s => ({ cod: s.codigo, det: s.detalle?.substring(0,30), stk: s.stock_fisico, tipo: s.tipo_insumo_global }))));
+
+  // Clear old insumos and re-insert
+  try {
+    await supabase.from('stock_insumos').delete().gt('id', '00000000-0000-0000-0000-000000000000');
+  } catch (e) { console.warn('stock_insumos clear failed:', e.message); }
 
   let insumoCount = 0;
-  for (let i = 0; i < insumoArr.length; i += 500) {
-    const chunk = insumoArr.slice(i, i + 500);
+  for (let i = 0; i < insumoArr.length; i += 200) {
+    const chunk = insumoArr.slice(i, i + 200);
     const { error } = await supabase.from('stock_insumos').upsert(chunk, { onConflict: 'codigo' });
     if (!error) insumoCount += chunk.length;
-    else console.error('Insumos upsert error:', error.message);
+    else {
+      console.error('Insumos upsert error:', error.message);
+      // Retry individually
+      for (const row of chunk) {
+        const { error: e2 } = await supabase.from('stock_insumos').upsert([row], { onConflict: 'codigo' });
+        if (!e2) insumoCount++;
+      }
+    }
   }
 
-  return { bom_rows: bomCount, insumos: insumoCount, sheet_used: usedSheet, with_stock: withStock, tipo_breakdown: byTipo };
+  return { bom_rows: bomCount, bom_raw: bomItems.length, bom_unique: bomUnique.length, bom_products: new Set(bomUnique.map(b=>b.codigo_principal)).size, insumos: insumoCount, sheet_used: usedSheet, with_stock: withStock, tipo_breakdown: byTipo, errors: bomErrors.length > 0 ? bomErrors : undefined };
 }
 
 // ─── SYNC 5: Producciones planificadas (UNIFICADO) ───
