@@ -374,29 +374,71 @@ async function syncForecast(sheets, config, supabase) {
 async function syncBOM(sheets, config, supabase) {
   if (!config.sheet_id_bom) return { updated: 0, skipped: 'No sheet_id_bom configured' };
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: config.sheet_id_bom,
-    range: `'${config.sheet_name_bom || 'BASE BRUTA'}'`,
-    valueRenderOption: 'UNFORMATTED_VALUE',
-  });
+  // Try configured sheet name, then fallbacks
+  const sheetNames = [
+    config.sheet_name_bom,
+    'BASE BRUTA',
+    'Nueva base bruta',
+    'Base Bruta',
+  ].filter(Boolean);
 
-  const rows = res.data.values || [];
-  if (rows.length < 2) return { updated: 0, skipped: 'Not enough rows in BOM' };
+  let rows = [];
+  let usedSheet = '';
+  for (const sn of sheetNames) {
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: config.sheet_id_bom,
+        range: `'${sn}'`,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+      });
+      rows = res.data.values || [];
+      if (rows.length >= 2) { usedSheet = sn; break; }
+    } catch (e) {
+      console.warn(`BOM sheet '${sn}' not found, trying next...`);
+    }
+  }
+  if (rows.length < 2) return { updated: 0, skipped: 'BOM sheet not found (tried: ' + sheetNames.join(', ') + ')' };
+  console.log(`BOM: using sheet '${usedSheet}' with ${rows.length} rows`);
 
-  // Row 0 = headers: GRUPO_PRODUCTO, CODIGO_PRINCIPAL, NIVEL_JERARQUIA, CATEGORIA_NOMBRE, CATEGORIA, CODIGO, DETALLE, INSUMO_PRINCIPAL_ORIGEN, CANTIDAD_FORMULA, TIPO_INSUMO, STOCK_FISICO, ...
+  // Row 0 = headers (normalize: spaces→underscores, remove accents for robust matching)
   const headers = (rows[0] || []).map(h => String(h || '').toUpperCase().trim());
-  const col = (name) => headers.findIndex(h => h.includes(name));
+  const norm = s => s.replace(/\s+/g, '_').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const headersNorm = headers.map(norm);
+  const col = (name) => {
+    const nn = norm(name);
+    // Try normalized includes first
+    let idx = headersNorm.findIndex(h => h.includes(nn));
+    if (idx >= 0) return idx;
+    // Fallback: exact match on original
+    idx = headers.indexOf(name);
+    return idx;
+  };
 
   const iCodPrincipal = col('CODIGO_PRINCIPAL');
-  const iNivel = col('NIVEL_JERARQUIA');
-  const iCategoria = col('CATEGORIA_NOMBRE');
-  const iCodigo = headers.indexOf('CODIGO');
-  const iDetalle = headers.indexOf('DETALLE');
-  const iCantFormula = col('CANTIDAD_FORMULA');
+  const iNivel = col('NIVEL_JERARQUIA') >= 0 ? col('NIVEL_JERARQUIA') : col('NIVEL');
+  const iCategoria = col('CATEGORIA_NOMBRE') >= 0 ? col('CATEGORIA_NOMBRE') : col('CATEGORIA');
+  // CODIGO: find column that is exactly "CODIGO" (not CODIGO_PRINCIPAL)
+  const iCodigo = (() => {
+    let idx = headers.indexOf('CODIGO');
+    if (idx >= 0) return idx;
+    idx = headersNorm.indexOf('CODIGO');
+    if (idx >= 0) return idx;
+    // Find column named CODIGO that is NOT CODIGO_PRINCIPAL
+    for (let i = 0; i < headers.length; i++) {
+      const h = headersNorm[i];
+      if (h === 'CODIGO' || h === 'CODIGO_INSUMO' || h === 'COD_INSUMO') return i;
+    }
+    return -1;
+  })();
+  const iDetalle = col('DETALLE');
+  const iCantFormula = col('CANTIDAD_FORMULA') >= 0 ? col('CANTIDAD_FORMULA') : col('CANTIDAD');
   const iTipoInsumo = col('TIPO_INSUMO');
-  const iStockFisico = col('STOCK_FISICO');
-  const iDisponible = headers.indexOf('DISPONIBLE');
-  const iGrupo = col('GRUPO_PRODUCTO');
+  const iStockFisico = col('STOCK_FISICO') >= 0 ? col('STOCK_FISICO') : col('STOCK');
+  const iDisponible = col('DISPONIBLE');
+  const iGrupo = col('GRUPO_PRODUCTO') >= 0 ? col('GRUPO_PRODUCTO') : col('GRUPO');
+
+  console.log('BOM headers found:', JSON.stringify(headers));
+  console.log('BOM column indices:', JSON.stringify({ iCodPrincipal, iNivel, iCategoria, iCodigo, iDetalle, iCantFormula, iTipoInsumo, iStockFisico, iDisponible, iGrupo }));
 
   const bomItems = [];
   const insumoStock = {};
@@ -450,7 +492,8 @@ async function syncBOM(sheets, config, supabase) {
       else if (tipoGlobal === 'estuche') leadTimeDias = 120; // 4 meses (China default)
       else if (tipoGlobal === 'esencia') leadTimeDias = 45; // 30-60 días
 
-      if (!insumoStock[codigo]) {
+      // Store insumo stock — if same codigo appears multiple times, keep the one with higher stock
+      if (!insumoStock[codigo] || stockFisico > (insumoStock[codigo].stock_fisico || 0)) {
         insumoStock[codigo] = {
           codigo: codigo,
           detalle: detalle.substring(0, 200),
@@ -476,6 +519,14 @@ async function syncBOM(sheets, config, supabase) {
 
   // Upsert stock_insumos
   const insumoArr = Object.values(insumoStock);
+  const withStock = insumoArr.filter(i => i.stock_fisico > 0).length;
+  const byTipo = {};
+  insumoArr.forEach(i => { byTipo[i.tipo_insumo_global] = (byTipo[i.tipo_insumo_global] || 0) + 1; });
+  console.log(`BOM insumos: ${insumoArr.length} unique, ${withStock} with stock > 0, types: ${JSON.stringify(byTipo)}`);
+  // Log sample insumos for debugging
+  const sample = insumoArr.filter(i => i.stock_fisico > 0).slice(0, 5);
+  if (sample.length > 0) console.log('Sample insumos with stock:', JSON.stringify(sample.map(s => ({ cod: s.codigo, det: s.detalle?.substring(0,30), stk: s.stock_fisico, tipo: s.tipo_insumo_global }))));
+
   let insumoCount = 0;
   for (let i = 0; i < insumoArr.length; i += 500) {
     const chunk = insumoArr.slice(i, i + 500);
@@ -484,7 +535,7 @@ async function syncBOM(sheets, config, supabase) {
     else console.error('Insumos upsert error:', error.message);
   }
 
-  return { bom_rows: bomCount, insumos: insumoCount };
+  return { bom_rows: bomCount, insumos: insumoCount, sheet_used: usedSheet, with_stock: withStock, tipo_breakdown: byTipo };
 }
 
 // ─── SYNC 5: Producciones planificadas (UNIFICADO) ───
