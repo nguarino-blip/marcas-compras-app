@@ -1619,8 +1619,13 @@ async function renderMRPPage(c) {
     const insIdx = {};
     insumos.forEach(i => { insIdx[i.codigo] = i; });
 
-    const prodIdx = {};
-    prodPlan.forEach(p => { prodIdx[p.codigo] = (prodIdx[p.codigo] || 0) + (p.cantidad || 0); });
+    // Producciones: total + primer mes planificado
+    const prodIdx = {};   // codigo → total cantidad
+    const prodFecha = {}; // codigo → primer mes (fecha más cercana)
+    prodPlan.forEach(p => {
+      prodIdx[p.codigo] = (prodIdx[p.codigo] || 0) + (p.cantidad || 0);
+      if (!prodFecha[p.codigo] || p.mes < prodFecha[p.codigo]) prodFecha[p.codigo] = p.mes;
+    });
 
     const marcaLT = {};
     const marcasFab = new Set(); // marcas con tipo_abastecimiento = fabricacion
@@ -1679,20 +1684,30 @@ async function renderMRPPage(c) {
       const forecast = sp ? (sp.forecast_proximo_mes || 0) : 0;
       const vtaAvg = sp ? (sp.venta_mensual_avg || 0) : 0;
       const matched = !!sp;
-      const demanda = Math.max(forecast, vtaAvg);
-      const demDia = demanda / 30;
+      const vtaMes = Math.max(forecast, vtaAvg);
+      const vta3m = vtaMes * 3; // proyección 3 meses
+      const demDia = vtaMes / 30;
       const prod = prodIdx[codigo] || (sp ? (prodIdx[sp.codigo] || 0) : 0);
+      const fechaProd = prodFecha[codigo] || (sp ? prodFecha[sp.codigo] : null);
       const hasBOM = componentes && componentes.length > 0;
 
-      // Producibles: solo si tiene BOM
+      // Stock insumos por tipo (botella, estuche, esencia)
+      let insBot = null, insEst = null, insEse = null;
       let producibles = 0, cuello = null;
       if (hasBOM) {
         producibles = Infinity;
         componentes.forEach(comp => {
           const ins = insIdx[comp.codigo_insumo];
           const stk = ins ? (ins.stock_fisico || 0) : 0;
+          const tipo = ins ? (ins.tipo_insumo_global || '') : '';
           const qty = comp.cantidad_formula > 0 ? comp.cantidad_formula : 1;
           const rinde = Math.floor(stk / qty);
+
+          // Clasificar stock por tipo de insumo
+          if (tipo === 'frasco' && (insBot === null || stk < insBot)) insBot = stk;
+          else if (tipo === 'estuche' && (insEst === null || stk < insEst)) insEst = stk;
+          else if (tipo === 'esencia' && (insEse === null || stk < insEse)) insEse = stk;
+
           if (rinde < producibles) {
             producibles = rinde;
             cuello = { cod: comp.codigo_insumo, det: comp.detalle_insumo || '', stk, qty, rinde };
@@ -1701,6 +1716,7 @@ async function renderMRPPage(c) {
         if (producibles === Infinity || producibles < 0) producibles = 0;
       }
 
+      // Cobertura basada en proyección 3 meses (demDia promedio)
       const cobPT = demDia > 0 ? Math.round(stock / demDia) : (stock > 0 ? 999 : 0);
       const cobTot = demDia > 0 ? Math.round((stock + prod + producibles) / demDia) : (stock + prod + producibles > 0 ? 999 : 0);
       const disponible = stock + prod + producibles;
@@ -1726,8 +1742,9 @@ async function renderMRPPage(c) {
 
       return {
         codigo, nombre, marca, matched, hasBOM,
-        stock, forecast, vtaAvg, demanda, demDia, prod, producibles,
+        stock, forecast, vtaAvg, vtaMes, vta3m, demDia, prod, producibles,
         cuello, cobPT, cobTot, disponible, quiebrePT, quiebreTot,
+        fechaProd, insBot, insEst, insEse,
         accion, urg, componentes: componentes || [],
         discMarca, extMarca
       };
@@ -1765,7 +1782,7 @@ async function renderMRPPage(c) {
     // Separar y ordenar
     const fabActivos = fabList
       .filter(p => !p.discMarca && !p.extMarca)
-      .sort((a, b) => b.demanda - a.demanda || a.cobPT - b.cobPT);
+      .sort((a, b) => b.vtaMes - a.vtaMes || a.cobPT - b.cobPT);
     const fabExt = fabList.filter(p => p.extMarca);
 
     // ══════════════════════════════════════════
@@ -1806,7 +1823,7 @@ async function renderMRPPage(c) {
       else if (p.cobPT < 60) { accion = '🟡 Iniciar OC'; urg = 2; }
       else if (p.cobPT < lt) { accion = '🟠 Planificar'; urg = 1; }
       else { accion = '🟢 OK'; }
-      compraTop.push({ codigo: p.codigo, nombre: p.nombre, marca: p.marca, stock_actual: p.stock, demanda: p.demanda, demDia: p.demDia, cobDias: p.cobPT, lt, isExt: true, accion, urg });
+      compraTop.push({ codigo: p.codigo, nombre: p.nombre, marca: p.marca, stock_actual: p.stock, demanda: p.vtaMes, demDia: p.demDia, cobDias: p.cobPT, lt, isExt: true, accion, urg });
     });
     compraTop.sort((a, b) => b.demanda - a.demanda);
 
@@ -1843,7 +1860,7 @@ async function renderMRPPage(c) {
     insCompra.forEach(i => { if (!insGrp[i.tipo]) insGrp[i.tipo]=[]; insGrp[i.tipo].push(i); });
 
     // ══════════════════════════════════════════
-    // 7. KPIs
+    // 7. KPIs & helpers
     // ══════════════════════════════════════════
     const nFabTotal = fabActivos.length;
     const nFabConBOM = fabActivos.filter(p => p.hasBOM).length;
@@ -1853,9 +1870,12 @@ async function renderMRPPage(c) {
     const cobClr = d => d < 30 ? 'var(--red)' : d < 60 ? 'var(--orange)' : d < 90 ? 'var(--gold)' : 'var(--green)';
     const tLabel = { frasco:'🧴 Frascos',estuche:'📦 Estuches',esencia:'💧 Esencias',tapa:'🔲 Tapas',collar:'⭕ Collares',valvula:'🔧 Válvulas',otro:'📋 Otros' };
     const fmtDate = d => d ? d.toLocaleDateString('es-AR', { day:'2-digit', month:'short' }) : '-';
+    const fmtMes = m => { if (!m) return '-'; const d = new Date(m+'T00:00:00'); return d.toLocaleDateString('es-AR',{month:'short',year:'2-digit'}); };
+    // Insumo status icon: ✅ hay stock, ❌ sin stock, ➖ no aplica
+    const insIcon = (v) => v === null ? '<span style="color:var(--txt2)">➖</span>' : v > 0 ? '<span style="color:var(--green)">✅</span>' : '<span style="color:var(--red)">❌</span>';
 
-    // Top 40 for display
-    const fabTop = fabActivos.slice(0, 40);
+    // ALL products for display (sorted by demanda, top sellers first)
+    const fabTop = fabActivos;
 
     c.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
@@ -1891,7 +1911,7 @@ async function renderMRPPage(c) {
       <!-- ═══ FABRICACIÓN ═══ -->
       <div id="mrpPnlFab" class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-          <h3 style="color:var(--gold);">Plan de Producción — Top ${fabTop.length} de ${nFabTotal} por demanda</h3>
+          <h3 style="color:var(--gold);">Plan de Producción — ${nFabTotal} productos (ordenados por demanda)</h3>
           <div style="display:flex;gap:6px;">
             <select id="mrpFiltFab" onchange="filterMrpFab()" style="width:auto;min-width:150px;font-size:12px;">
               <option value="">Todas las marcas</option>
@@ -1907,55 +1927,70 @@ async function renderMRPPage(c) {
           </div>
         </div>
         <p style="color:var(--txt2);font-size:11px;margin-bottom:8px;">
-          ${nFabConBOM} productos con BOM (producibles calculados) + ${nFabSinBOM} de marcas fabricación sin BOM.
-          <strong>Producibles</strong> = mín. componente BOM. <strong>Quiebre</strong> = fecha rotura stock PT. Target: ${COB_PT}d PT + ${COB_INS}d insumos.
+          ${nFabConBOM} con BOM + ${nFabSinBOM} sin fórmula.
+          <strong>Vta 3M</strong> = proyección 3 meses. <strong>Stock Ins.</strong>: ✅=hay / ❌=sin stock / ➖=no aplica.
+          <strong>Produc.</strong> = uds fabricables con insumos actuales.
         </p>
         ${fabTop.length === 0
           ? `<p style="color:var(--txt2);padding:20px;text-align:center;">
-              No se encontraron productos de fabricación. Verificar que config_marcas tenga tipo_abastecimiento='fabricacion' y/o que haya datos en BOM.
-              <br><small>Marcas fab configuradas: ${[...marcasFab].join(', ') || 'ninguna'}</small>
+              No se encontraron productos de fabricación. Verificar config_marcas y/o BOM.
+              <br><small>Marcas fab: ${[...marcasFab].join(', ') || 'ninguna'}</small>
             </p>`
           : `
           <div style="overflow-x:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;" id="mrpTblFab">
-              <thead><tr style="border-bottom:2px solid var(--border);background:var(--bg3);">
-                <th style="padding:5px 4px;text-align:left;width:24px;">#</th>
-                <th style="padding:5px 4px;text-align:left;">Código</th>
-                <th style="padding:5px 4px;text-align:left;">Producto</th>
-                <th style="padding:5px 4px;text-align:left;">Marca</th>
-                <th style="padding:5px 4px;text-align:right;">Demanda/mes</th>
-                <th style="padding:5px 4px;text-align:right;">Stock PT</th>
-                <th style="padding:5px 4px;text-align:right;" title="Uds producibles con insumos actuales (solo si tiene BOM)">Produc.</th>
-                <th style="padding:5px 4px;text-align:right;">Prod.Plan</th>
-                <th style="padding:5px 4px;text-align:right;">Disponible</th>
-                <th style="padding:5px 4px;text-align:center;">Cob.PT</th>
-                <th style="padding:5px 4px;text-align:center;">Cob.Total</th>
-                <th style="padding:5px 4px;text-align:center;" title="Fecha estimada rotura stock PT">Quiebre</th>
-                <th style="padding:5px 4px;text-align:center;">Acción</th>
-                <th style="padding:5px 4px;text-align:left;">Cuello botella</th>
-              </tr></thead><tbody>
+            <table style="width:100%;border-collapse:collapse;font-size:11px;" id="mrpTblFab">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border);background:var(--bg3);">
+                  <th rowspan="2" style="padding:4px 3px;text-align:left;width:22px;">#</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:left;">Producto</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:left;">Marca</th>
+                  <th colspan="2" style="padding:4px 3px;text-align:center;border-bottom:1px solid var(--border);color:var(--gold);">Venta</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:right;">Stock PT</th>
+                  <th colspan="3" style="padding:4px 3px;text-align:center;border-bottom:1px solid var(--border);color:var(--violet);">Stock Insumos</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:right;" title="Uds producibles con insumos actuales">Produc.</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:right;">Prod.Plan</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:center;" title="Fecha planificada de producción">Fch.Prod</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:right;">Disp.</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:center;">Cob.PT</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:center;">Cob.Tot</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:center;" title="Fecha estimada rotura stock PT">Quiebre</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:center;">Acción</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:left;">Cuello</th>
+                </tr>
+                <tr style="border-bottom:2px solid var(--border);background:var(--bg3);">
+                  <th style="padding:2px 3px;text-align:right;font-size:9px;">Mes</th>
+                  <th style="padding:2px 3px;text-align:right;font-size:9px;">3M</th>
+                  <th style="padding:2px 3px;text-align:center;font-size:9px;" title="Botella/Frasco">Bot</th>
+                  <th style="padding:2px 3px;text-align:center;font-size:9px;" title="Estuche/Caja">Est</th>
+                  <th style="padding:2px 3px;text-align:center;font-size:9px;" title="Esencia/Fragancia">Ese</th>
+                </tr>
+              </thead><tbody>
               ${fabTop.map((p, i) => `
-                <tr style="border-bottom:1px solid var(--border);${p.urg>=3?'background:rgba(255,50,50,0.08);':p.urg>=2?'background:rgba(255,165,0,0.05);':''}" data-marca="${p.marca}" data-urg="${p.urg}">
-                  <td style="padding:3px 4px;color:var(--txt2);font-size:10px;">${i+1}</td>
-                  <td style="padding:3px 4px;font-family:monospace;font-size:10px;">${p.codigo}</td>
-                  <td style="padding:3px 4px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombre}${!p.hasBOM?' (sin BOM)':''}">${(p.nombre||'').substring(0,25)}${!p.hasBOM?' <span style=color:var(--orange);font-size:9px;>∅BOM</span>':''}</td>
-                  <td style="padding:3px 4px;font-size:10px;">${p.marca||'?'}</td>
-                  <td style="padding:3px 4px;text-align:right;font-weight:bold;">${p.demanda>0?Math.round(p.demanda).toLocaleString():'<span style=color:var(--txt2)>-</span>'}</td>
-                  <td style="padding:3px 4px;text-align:right;color:${p.stock<=0?'var(--red)':'var(--txt)'};">${Math.round(p.stock).toLocaleString()}</td>
-                  <td style="padding:3px 4px;text-align:right;color:${p.producibles<=0?(p.hasBOM?'var(--red)':'var(--txt2)'):'var(--green)'};">${p.hasBOM?Math.round(p.producibles).toLocaleString():'-'}</td>
-                  <td style="padding:3px 4px;text-align:right;color:${p.prod>0?'var(--green)':'var(--txt2)'};">${p.prod>0?Math.round(p.prod).toLocaleString():'-'}</td>
-                  <td style="padding:3px 4px;text-align:right;font-weight:bold;">${Math.round(p.disponible).toLocaleString()}</td>
-                  <td style="padding:3px 4px;text-align:center;font-weight:bold;color:${cobClr(p.cobPT)};">${p.cobPT>=999?'∞':p.cobPT+'d'}</td>
-                  <td style="padding:3px 4px;text-align:center;font-weight:bold;color:${cobClr(p.cobTot)};">${p.cobTot>=999?'∞':p.cobTot+'d'}</td>
-                  <td style="padding:3px 4px;text-align:center;font-size:10px;color:${p.cobPT<60?'var(--red)':'var(--txt2)'};">${p.quiebrePT && p.cobPT<999 ? fmtDate(p.quiebrePT) : '-'}</td>
-                  <td style="padding:3px 4px;text-align:center;font-size:11px;white-space:nowrap;">${p.accion}</td>
-                  <td style="padding:3px 4px;font-size:9px;color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.cuello?p.cuello.det+' (stk:'+p.cuello.stk+', rinde:'+p.cuello.rinde+')':''}">${p.cuello?(p.cuello.det||p.cuello.cod).substring(0,18)+' →'+p.cuello.rinde:(p.hasBOM?'-':'')}</td>
+                <tr style="border-bottom:1px solid var(--border);${i<40?'':'opacity:0.85;'}${p.urg>=3?'background:rgba(255,50,50,0.08);':p.urg>=2?'background:rgba(255,165,0,0.05);':''}" data-marca="${p.marca}" data-urg="${p.urg}">
+                  <td style="padding:2px 3px;color:var(--txt2);font-size:9px;">${i+1}</td>
+                  <td style="padding:2px 3px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombre} [${p.codigo}]${!p.hasBOM?' (sin BOM)':''}">${(p.nombre||'').substring(0,22)}${!p.hasBOM?' <span style=color:var(--orange);font-size:8px;>∅</span>':''}</td>
+                  <td style="padding:2px 3px;font-size:9px;">${p.marca||'?'}</td>
+                  <td style="padding:2px 3px;text-align:right;font-weight:bold;">${p.vtaMes>0?Math.round(p.vtaMes).toLocaleString():'<span style=color:var(--txt2)>-</span>'}</td>
+                  <td style="padding:2px 3px;text-align:right;color:var(--txt2);">${p.vta3m>0?Math.round(p.vta3m).toLocaleString():'-'}</td>
+                  <td style="padding:2px 3px;text-align:right;color:${p.stock<=0?'var(--red)':'var(--txt)'};">${Math.round(p.stock).toLocaleString()}</td>
+                  <td style="padding:2px 3px;text-align:center;">${p.hasBOM?insIcon(p.insBot):'-'}</td>
+                  <td style="padding:2px 3px;text-align:center;">${p.hasBOM?insIcon(p.insEst):'-'}</td>
+                  <td style="padding:2px 3px;text-align:center;">${p.hasBOM?insIcon(p.insEse):'-'}</td>
+                  <td style="padding:2px 3px;text-align:right;color:${p.producibles<=0?(p.hasBOM?'var(--red)':'var(--txt2)'):'var(--green)'};">${p.hasBOM?Math.round(p.producibles).toLocaleString():'-'}</td>
+                  <td style="padding:2px 3px;text-align:right;color:${p.prod>0?'var(--green)':'var(--txt2)'};">${p.prod>0?Math.round(p.prod).toLocaleString():'-'}</td>
+                  <td style="padding:2px 3px;text-align:center;font-size:9px;color:${p.fechaProd?'var(--gold)':'var(--txt2)'};">${fmtMes(p.fechaProd)}</td>
+                  <td style="padding:2px 3px;text-align:right;font-weight:bold;">${Math.round(p.disponible).toLocaleString()}</td>
+                  <td style="padding:2px 3px;text-align:center;font-weight:bold;color:${cobClr(p.cobPT)};">${p.cobPT>=999?'∞':p.cobPT+'d'}</td>
+                  <td style="padding:2px 3px;text-align:center;font-weight:bold;color:${cobClr(p.cobTot)};">${p.cobTot>=999?'∞':p.cobTot+'d'}</td>
+                  <td style="padding:2px 3px;text-align:center;font-size:9px;color:${p.cobPT<60?'var(--red)':'var(--txt2)'};">${p.quiebrePT && p.cobPT<999 ? fmtDate(p.quiebrePT) : '-'}</td>
+                  <td style="padding:2px 3px;text-align:center;font-size:10px;white-space:nowrap;">${p.accion}</td>
+                  <td style="padding:2px 3px;font-size:8px;color:var(--txt2);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.cuello?p.cuello.det+' (stk:'+p.cuello.stk+', rinde:'+p.cuello.rinde+')':''}">${p.cuello?(p.cuello.det||p.cuello.cod).substring(0,15)+' →'+p.cuello.rinde:(p.hasBOM?'-':'')}</td>
                 </tr>
               `).join('')}
               </tbody></table>
           </div>
           <p style="color:var(--txt2);font-size:10px;margin-top:6px;">
-            Mostrando top ${fabTop.length} de ${nFabTotal} productos fabricación (${nFabConBOM} con BOM, ${nFabSinBOM} sin BOM).
+            ${nFabTotal} productos fabricación (${nFabConBOM} con BOM, ${nFabSinBOM} sin BOM).
             Marcas fab: ${[...marcasFab].join(', ') || 'config pendiente'}.
           </p>`
         }
