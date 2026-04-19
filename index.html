@@ -1388,6 +1388,22 @@ async function renderStock(c) {
       </div>
     `}
 
+    <!-- MRP Section -->
+    <div class="card" style="margin-top:16px;" id="mrpSection">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h3>🏭 Planificación MRP — Necesidades de Compra</h3>
+        <button class="btn-outline btn-sm" onclick="loadMRP()">Calcular MRP</button>
+      </div>
+      <p style="color:var(--txt2);font-size:12px;margin-bottom:12px;">
+        Cruce de stock actual + forecast 3 meses + stock de insumos (envase como cuello de botella).
+        <span style="color:var(--gold);">Marcas propias = análisis de insumos</span> |
+        <span style="color:var(--txt2);">Marcas compradas = solo lead time de compra PT.</span>
+      </p>
+      <div id="mrpContent" style="color:var(--txt2);text-align:center;padding:20px;">
+        Hacé click en "Calcular MRP" para generar el análisis.
+      </div>
+    </div>
+
     <!-- Lead Time Config -->
     <div class="card" style="margin-top:16px;">
       <h3 style="margin-bottom:12px;">⚙️ Lead Time Default por Marca y Umbral de Alerta</h3>
@@ -1544,13 +1560,142 @@ async function triggerSync() {
     const resp = await fetch('/api/sync-sheets', { headers: { 'Authorization': 'Bearer ' + token } });
     const data = await resp.json();
     if (resp.ok) {
-      toast('Sincronización completada: ' + (data.stocks?.updated || 0) + ' stocks, ' + (data.forecast?.updated || 0) + ' forecast');
+      console.log('Sync response:', JSON.stringify(data));
+      const ss = data.stock_sistema;
+      const msg = `Sync OK: Sistema=${ss?.updated||0} upd, ${ss?.inserted||0} new | Stocks=${data.stocks?.updated||0} | Forecast=${data.forecast?.updated||0}`;
+      toast(msg);
       await renderStock(document.getElementById('tabContent'));
     } else {
       toast('Error de sync: ' + (data.error || 'desconocido'), true);
     }
   } catch (e) {
     toast('Error de conexión: ' + e.message, true);
+  }
+}
+
+// ─── MRP Functions ───
+async function loadMRP() {
+  const mc = document.getElementById('mrpContent');
+  if (!mc) return;
+  mc.innerHTML = '<div style="text-align:center;padding:20px;color:var(--txt2);">Calculando MRP...</div>';
+
+  try {
+    const { data, error } = await sb.rpc('get_mrp_analysis', { p_meses_forecast: 3 });
+    if (error) throw error;
+    renderMRP(data, mc);
+  } catch (e) {
+    mc.innerHTML = `<div style="color:var(--red);padding:12px;">Error MRP: ${e.message}. ¿Ejecutaste el SQL de las tablas MRP?</div>`;
+  }
+}
+
+function renderMRP(data, container) {
+  const resumen = data?.resumen || {};
+  const porProducto = data?.por_producto || [];
+  const compras = data?.compras_sugeridas || [];
+
+  const tipoLabel = { frasco: '🧴 Frascos', estuche: '📦 Estuches', esencia: '💧 Esencias', tapa: '🔲 Tapas', collar: '⭕ Collares', valvula: '🔧 Válvulas', otro: '📋 Otros' };
+  const tipoColor = { frasco: 'var(--red)', estuche: 'var(--orange)', esencia: 'var(--gold)', otro: 'var(--txt2)' };
+
+  // Group compras by tipo
+  const comprasPorTipo = {};
+  (compras || []).forEach(c => {
+    const tipo = c.tipo_insumo || 'otro';
+    if (!comprasPorTipo[tipo]) comprasPorTipo[tipo] = [];
+    comprasPorTipo[tipo].push(c);
+  });
+
+  container.innerHTML = `
+    <!-- MRP KPIs -->
+    <div class="kpi-row" style="margin-bottom:16px;">
+      <div class="kpi"><div class="num">${resumen.total_pt || 0}</div><div class="label">Productos c/BOM</div></div>
+      <div class="kpi"><div class="num">${resumen.total_insumos || 0}</div><div class="label">Insumos</div></div>
+      <div class="kpi"><div class="num" style="color:var(--red)">${resumen.insumos_criticos || 0}</div><div class="label">Envases sin stock</div></div>
+      <div class="kpi"><div class="num">${porProducto.length}</div><div class="label">PT con gap</div></div>
+    </div>
+
+    <!-- Tabs: Compras sugeridas / Por producto -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button class="btn-gold btn-sm" onclick="showMrpTab('compras')" id="mrpTabCompras">🛒 Compras Sugeridas (${compras.length})</button>
+      <button class="btn-outline btn-sm" onclick="showMrpTab('productos')" id="mrpTabProductos">📋 Por Producto (${porProducto.length})</button>
+    </div>
+
+    <div id="mrpTabComprasContent">
+      ${Object.keys(comprasPorTipo).length === 0 ? '<p style="color:var(--green);padding:12px;">✅ No hay necesidades de compra de insumos pendientes.</p>' : ''}
+      ${Object.entries(comprasPorTipo).map(([tipo, items]) => `
+        <div style="margin-bottom:16px;">
+          <h4 style="color:${tipoColor[tipo] || 'var(--txt)'};margin-bottom:8px;">${tipoLabel[tipo] || tipo} — ${items.length} insumos a comprar</h4>
+          <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <tr style="border-bottom:1px solid var(--border);background:var(--bg3);">
+              <th style="padding:6px 8px;text-align:left;">Código</th>
+              <th style="padding:6px 8px;text-align:left;">Insumo</th>
+              <th style="padding:6px 8px;text-align:right;">Stock actual</th>
+              <th style="padding:6px 8px;text-align:right;">Demanda</th>
+              <th style="padding:6px 8px;text-align:right;color:var(--red);font-weight:bold;">Comprar</th>
+              <th style="padding:6px 8px;text-align:right;">Lead Time</th>
+              <th style="padding:6px 8px;text-align:right;">PTs afectados</th>
+            </tr>
+            ${items.slice(0, 50).map(c => `
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:6px 8px;font-family:monospace;">${c.codigo_insumo}</td>
+                <td style="padding:6px 8px;">${(c.detalle || '').substring(0, 50)}</td>
+                <td style="padding:6px 8px;text-align:right;">${Math.round(c.stock_insumo).toLocaleString()}</td>
+                <td style="padding:6px 8px;text-align:right;">${Math.round(c.demanda_insumo).toLocaleString()}</td>
+                <td style="padding:6px 8px;text-align:right;color:var(--red);font-weight:bold;">${Math.round(c.gap_insumo).toLocaleString()}</td>
+                <td style="padding:6px 8px;text-align:right;">${Math.round(c.lead_time_dias / 30)}m</td>
+                <td style="padding:6px 8px;text-align:right;">${c.productos_afectados}</td>
+              </tr>
+            `).join('')}
+          </table>
+        </div>
+      `).join('')}
+    </div>
+
+    <div id="mrpTabProductosContent" style="display:none;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <tr style="border-bottom:1px solid var(--border);background:var(--bg3);">
+          <th style="padding:6px 8px;text-align:left;">Código</th>
+          <th style="padding:6px 8px;text-align:left;">Producto</th>
+          <th style="padding:6px 8px;text-align:left;">Marca</th>
+          <th style="padding:6px 8px;text-align:right;">Stock PT</th>
+          <th style="padding:6px 8px;text-align:right;">Demanda 3m</th>
+          <th style="padding:6px 8px;text-align:right;">Prod. estimada</th>
+          <th style="padding:6px 8px;text-align:right;">Cap. envase</th>
+          <th style="padding:6px 8px;text-align:right;color:var(--red);">Gap</th>
+        </tr>
+        ${porProducto.slice(0, 100).map(p => `
+          <tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:6px 8px;font-family:monospace;">${p.codigo}</td>
+            <td style="padding:6px 8px;">${(p.nombre || '').substring(0, 40)}</td>
+            <td style="padding:6px 8px;">${p.marca}</td>
+            <td style="padding:6px 8px;text-align:right;">${Math.round(p.stock_pt).toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;">${Math.round(p.demanda_periodo).toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;color:var(--txt2);">${Math.round(p.produccion_estimada).toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;color:${p.capacidad_envase < p.demanda_periodo ? 'var(--red)' : 'var(--green)'};">${Math.round(p.capacidad_envase).toLocaleString()}</td>
+            <td style="padding:6px 8px;text-align:right;color:var(--red);font-weight:bold;">${Math.round(p.gap_unidades).toLocaleString()}</td>
+          </tr>
+        `).join('')}
+      </table>
+    </div>
+  `;
+}
+
+function showMrpTab(tab) {
+  const comprasContent = document.getElementById('mrpTabComprasContent');
+  const productosContent = document.getElementById('mrpTabProductosContent');
+  const comprasBtn = document.getElementById('mrpTabCompras');
+  const productosBtn = document.getElementById('mrpTabProductos');
+  if (!comprasContent || !productosContent) return;
+
+  if (tab === 'compras') {
+    comprasContent.style.display = '';
+    productosContent.style.display = 'none';
+    comprasBtn.className = 'btn-gold btn-sm';
+    productosBtn.className = 'btn-outline btn-sm';
+  } else {
+    comprasContent.style.display = 'none';
+    productosContent.style.display = '';
+    comprasBtn.className = 'btn-outline btn-sm';
+    productosBtn.className = 'btn-gold btn-sm';
   }
 }
 
@@ -1768,6 +1913,18 @@ async function renderAdmin(c) {
         <input type="text" id="cfgSheetNameStockSistema" value="Stock Sistema" style="font-size:13px;"></div>
         <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Nombre de hoja (descripciones)</label>
         <input type="text" id="cfgSheetNameDescripcion" value="Descripcion" style="font-size:13px;"></div>
+        <hr style="border-color:var(--border);margin:16px 0;">
+        <p style="font-size:12px;color:var(--gold);margin-bottom:8px;">🏭 MRP: BOM e Insumos</p>
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Sheet ID - BOM / Insumos (Boca de urna)</label>
+        <input type="text" id="cfgSheetIdBom" placeholder="ID del Google Sheet de BOM" style="font-size:13px;"></div>
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Nombre de hoja (BOM)</label>
+        <input type="text" id="cfgSheetNameBom" value="BASE BRUTA" style="font-size:13px;"></div>
+        <hr style="border-color:var(--border);margin:16px 0;">
+        <p style="font-size:12px;color:var(--gold);margin-bottom:8px;">📅 Producciones Planificadas</p>
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Sheet ID - Seguimiento Ingresos / Producciones</label>
+        <input type="text" id="cfgSheetIdProducciones" placeholder="ID del Google Sheet de Producciones" style="font-size:13px;"></div>
+        <div style="margin-bottom:12px;"><label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:4px;">Nombre de hoja (producciones)</label>
+        <input type="text" id="cfgSheetNameProducciones" value="UNIFICADO" style="font-size:13px;"></div>
         <button class="btn-gold" id="btnSaveSheets" onclick="saveConfigSheets(this)">💾 Guardar configuración</button>
         <span id="sheetsStatus" style="margin-left:8px;font-size:12px;"></span>
       </div>
@@ -1792,6 +1949,14 @@ async function renderAdmin(c) {
       if (el5) el5.value = cfgSheets.sheet_id_stock_sistema || '';
       if (el6) el6.value = cfgSheets.sheet_name_stock_sistema || 'Stock Sistema';
       if (el7) el7.value = cfgSheets.sheet_name_descripcion || 'Descripcion';
+      const el8 = document.getElementById('cfgSheetIdBom');
+      const el9 = document.getElementById('cfgSheetNameBom');
+      const el10 = document.getElementById('cfgSheetIdProducciones');
+      const el11 = document.getElementById('cfgSheetNameProducciones');
+      if (el8) el8.value = cfgSheets.sheet_id_bom || '';
+      if (el9) el9.value = cfgSheets.sheet_name_bom || 'BASE BRUTA';
+      if (el10) el10.value = cfgSheets.sheet_id_producciones || '';
+      if (el11) el11.value = cfgSheets.sheet_name_producciones || 'UNIFICADO';
     }
   } catch (e) {
     console.warn('Config sheets not loaded:', e.message);
@@ -1883,15 +2048,21 @@ async function saveConfigSheets(btn) {
     const rawStocks = document.getElementById('cfgSheetIdStocks')?.value?.trim() || '';
     const rawForecast = document.getElementById('cfgSheetIdForecast')?.value?.trim() || '';
     const rawStockSistema = document.getElementById('cfgSheetIdStockSistema')?.value?.trim() || '';
+    const rawBom = document.getElementById('cfgSheetIdBom')?.value?.trim() || '';
+    const rawProducciones = document.getElementById('cfgSheetIdProducciones')?.value?.trim() || '';
     const sheetIdStocks = extractSheetId(rawStocks);
     const sheetIdForecast = extractSheetId(rawForecast);
     const sheetIdStockSistema = extractSheetId(rawStockSistema);
+    const sheetIdBom = extractSheetId(rawBom);
+    const sheetIdProducciones = extractSheetId(rawProducciones);
     const sheetNameStocks = document.getElementById('cfgSheetNameStocks')?.value?.trim() || 'Ventas stock cierre cobertura';
     const sheetNameForecast = document.getElementById('cfgSheetNameForecast')?.value?.trim() || 'Resumen Gral.';
     const sheetNameStockSistema = document.getElementById('cfgSheetNameStockSistema')?.value?.trim() || 'Stock Sistema';
     const sheetNameDescripcion = document.getElementById('cfgSheetNameDescripcion')?.value?.trim() || 'Descripcion';
+    const sheetNameBom = document.getElementById('cfgSheetNameBom')?.value?.trim() || 'BASE BRUTA';
+    const sheetNameProducciones = document.getElementById('cfgSheetNameProducciones')?.value?.trim() || 'UNIFICADO';
 
-    if (!sheetIdStocks && !sheetIdForecast && !sheetIdStockSistema) {
+    if (!sheetIdStocks && !sheetIdForecast && !sheetIdStockSistema && !sheetIdBom) {
       toast('Ingresá al menos un Sheet ID o URL', true);
       if (status) { status.textContent = '⚠️ Falta Sheet ID'; status.style.color = 'var(--red)'; }
       if (btn) btn.disabled = false;
@@ -1906,7 +2077,10 @@ async function saveConfigSheets(btn) {
       sheet_id_stocks: sheetIdStocks, sheet_name_stocks: sheetNameStocks,
       sheet_id_forecast: sheetIdForecast, sheet_name_forecast: sheetNameForecast,
       sheet_id_stock_sistema: sheetIdStockSistema, sheet_name_stock_sistema: sheetNameStockSistema,
-      sheet_name_descripcion: sheetNameDescripcion, sync_enabled: true,
+      sheet_name_descripcion: sheetNameDescripcion,
+      sheet_id_bom: sheetIdBom, sheet_name_bom: sheetNameBom,
+      sheet_id_producciones: sheetIdProducciones, sheet_name_producciones: sheetNameProducciones,
+      sync_enabled: true,
     };
 
     const save = (async () => {
@@ -1923,6 +2097,8 @@ async function saveConfigSheets(btn) {
     if (sheetIdStocks) document.getElementById('cfgSheetIdStocks').value = sheetIdStocks;
     if (sheetIdForecast) document.getElementById('cfgSheetIdForecast').value = sheetIdForecast;
     if (sheetIdStockSistema) document.getElementById('cfgSheetIdStockSistema').value = sheetIdStockSistema;
+    if (sheetIdBom) document.getElementById('cfgSheetIdBom').value = sheetIdBom;
+    if (sheetIdProducciones) document.getElementById('cfgSheetIdProducciones').value = sheetIdProducciones;
 
     toast('Configuración de Sheets guardada ✓');
     if (status) { status.textContent = '✅ Guardado'; status.style.color = 'var(--green)'; }
