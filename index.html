@@ -537,7 +537,13 @@ async function initApp(user) {
   if (mrpTab) {
     if (['compras','admin'].includes(profile.role)) {
       mrpTab.classList.remove('hidden');
-    if (['compras','admin'].includes(currentUser.role)) document.querySelector('[data-tab="sop"]').classList.remove('hidden');
+    }
+  }
+  // S&OP tab for compras and admin
+  const sopTab = document.querySelector('[data-tab="sop"]');
+  if (sopTab) {
+    if (['compras','admin'].includes(profile.role)) {
+      sopTab.classList.remove('hidden');
     }
   }
   // Admin tab only for admin role
