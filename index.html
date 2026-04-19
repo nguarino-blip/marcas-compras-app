@@ -1603,7 +1603,7 @@ async function renderMRPPage(c) {
       sb.from('config_marcas').select('*'),
       sb.from('stock_productos').select('codigo, nombre, marca, segmento, polo, stock_actual, venta_mensual_avg, forecast_proximo_mes').range(0, 9999),
       sb.from('producciones_planificadas').select('codigo, mes, cantidad').gte('mes', new Date().toISOString().substring(0,7)+'-01').range(0, 9999),
-      sb.from('bom_productos').select('codigo_principal, nombre_principal, codigo_insumo, detalle_insumo, cantidad_formula, es_envase, nivel').range(0, 9999),
+      sb.from('bom_productos').select('codigo_principal, nombre_principal, codigo_insumo, detalle_insumo, cantidad_formula, es_envase, nivel, categoria').range(0, 9999),
       sb.from('stock_insumos').select('codigo, detalle, stock_fisico, tipo_insumo_global, lead_time_dias').range(0, 9999),
     ]);
 
@@ -1656,15 +1656,32 @@ async function renderMRPPage(c) {
     });
 
     // ══════════════════════════════════════════
-    // 2. BOM INDEX: productos con fórmula
+    // 2. BOM INDEX: identificar PTs reales vs insumos/sub-ensambles
     // ══════════════════════════════════════════
+    // Paso 1: Agrupar componentes por codigo_principal
     const bomByPT = {};
+    const allInsumosCodigos = new Set(); // todos los códigos que aparecen como insumo
     bomRows.forEach(b => {
       if (!bomByPT[b.codigo_principal]) bomByPT[b.codigo_principal] = { codigo: b.codigo_principal, nombre: b.nombre_principal || '', componentes: [] };
       bomByPT[b.codigo_principal].componentes.push(b);
+      allInsumosCodigos.add(b.codigo_insumo); // este código es un insumo de algo
     });
-    const bomCodigos = new Set(Object.keys(bomByPT));
+
+    // Paso 2: Un codigo_principal que TAMBIÉN es insumo de otro PT → es sub-ensamble, no PT real
+    // PT real = tiene BOM Y NO es insumo de otro producto
+    const subEnsambles = new Set();
+    for (const cod of Object.keys(bomByPT)) {
+      if (allInsumosCodigos.has(cod)) subEnsambles.add(cod);
+    }
+
+    // Solo PTs reales (excluir sub-ensambles)
+    const bomPTReales = {};
+    for (const [cod, data] of Object.entries(bomByPT)) {
+      if (!subEnsambles.has(cod)) bomPTReales[cod] = data;
+    }
+    const bomCodigos = new Set(Object.keys(bomPTReales));
     const nBOM = bomCodigos.size;
+    const nSubEnsambles = subEnsambles.size;
 
     // ══════════════════════════════════════════
     // 3. CONSTRUIR LISTA COMPLETA DE FABRICACIÓN
@@ -1704,6 +1721,8 @@ async function renderMRPPage(c) {
       const hasBOM = componentes && componentes.length > 0;
 
       // Stock insumos por tipo (botella, estuche, esencia)
+      // Fuente primaria: stock_insumos.tipo_insumo_global (clasificado en sync)
+      // Fallback: keywords en detalle_insumo del BOM
       let insBot = null, insEst = null, insEse = null;
       let producibles = 0, cuello = null;
       if (hasBOM) {
@@ -1714,12 +1733,26 @@ async function renderMRPPage(c) {
           const qty = comp.cantidad_formula > 0 ? comp.cantidad_formula : 1;
           const rinde = Math.floor(stk / qty);
 
-          // Clasificar tipo desde detalle del BOM (siempre presente) + fallback a stock_insumos
+          // Clasificar tipo del componente
+          const tipoG = ins ? (ins.tipo_insumo_global || '').toLowerCase() : '';
           const det = (comp.detalle_insumo || '').toUpperCase();
-          const tipoIns = ins ? (ins.tipo_insumo_global || '') : '';
-          const esFrasco = tipoIns === 'frasco' || det.includes('FRASCO') || det.includes('ENVASE') || det.includes('BOTELLA');
-          const esEstuche = tipoIns === 'estuche' || det.includes('ESTUCHE') || det.includes('CAJA') || det.includes('INTERIOR') || det.includes('DISPLAY');
-          const esEsencia = tipoIns === 'esencia' || det.includes('ESENCIA') || det.includes('FRAGANCIA') || det.includes('PERFUME') || det.includes('ACEITE');
+          const cat = (comp.categoria || '').toUpperCase();
+
+          // Determinar tipo: prioridad stock_insumos.tipo_insumo_global, luego keywords
+          let esFrasco = false, esEstuche = false, esEsencia = false;
+          if (tipoG === 'frasco') esFrasco = true;
+          else if (tipoG === 'estuche') esEstuche = true;
+          else if (tipoG === 'esencia') esEsencia = true;
+          else {
+            // Fallback: keywords en detalle o categoría
+            if (det.includes('FRASCO') || det.includes('ENVASE') || det.includes('BOTELLA') || det.includes('FLACON')
+                || cat.includes('FRASCO') || cat.includes('ENVASE')) esFrasco = true;
+            if (det.includes('ESTUCHE') || det.includes('CAJA') || det.includes('INTERIOR') || det.includes('DISPLAY')
+                || det.includes('PACKAGING') || cat.includes('ESTUCHE') || cat.includes('CAJA')) esEstuche = true;
+            if (det.includes('ESENCIA') || det.includes('FRAGANCIA') || det.includes('PERFUME') || det.includes('ACEITE')
+                || det.includes('COMPOUND') || det.includes('CONCENTRADO')
+                || cat.includes('ESENCIA') || cat.includes('FRAGANCIA')) esEsencia = true;
+          }
 
           // Guardar stock del tipo (mínimo si hay varios del mismo tipo)
           if (esFrasco) insBot = insBot === null ? stk : Math.min(insBot, stk);
@@ -1777,8 +1810,8 @@ async function renderMRPPage(c) {
       }
     });
 
-    // Fuente 1: Productos con BOM
-    for (const bp of Object.values(bomByPT)) {
+    // Fuente 1: Productos con BOM (solo PTs reales, no sub-ensambles)
+    for (const bp of Object.values(bomPTReales)) {
       const sp = matchSP(bp.codigo, bp.nombre);
       // Marca: prioridad 1) forecast record por código exacto, 2) stock_productos match, 3) vacío
       const fcst = forecastByCodigo[bp.codigo];
@@ -1921,7 +1954,7 @@ async function renderMRPPage(c) {
         <div class="kpi" style="cursor:pointer;" onclick="showMrpTab('ins')"><div class="num" style="color:${insCompra.length>0?'var(--orange)':'var(--green)'}">${insCompra.length}</div><div class="label">Insumos a comprar</div></div>
         <div class="kpi" style="cursor:pointer;" onclick="showMrpTab('cmp')"><div class="num" style="color:${nCompUrg>0?'var(--violet)':'var(--green)'}">${nCompUrg}</div><div class="label">Compra urgentes</div></div>
         <div class="kpi"><div class="num">${nFabTotal}</div><div class="label">PT Fabricación</div></div>
-        <div class="kpi"><div class="num" style="color:var(--green)">${nBOM} BOM</div><div class="label">${nFabSinBOM > 0 ? nFabSinBOM+' sin fórmula' : 'Todos con fórmula'}</div></div>
+        <div class="kpi"><div class="num" style="color:var(--green)">${nBOM} PT</div><div class="label">${nBOM} BOM${nSubEnsambles>0?', '+nSubEnsambles+' sub-ens.':''}</div></div>
       </div>
 
       <div style="color:var(--txt2);font-size:11px;margin-bottom:10px;background:var(--bg3);padding:8px 12px;border-radius:6px;">
@@ -1957,9 +1990,9 @@ async function renderMRPPage(c) {
           </div>
         </div>
         <p style="color:var(--txt2);font-size:11px;margin-bottom:8px;">
-          ${nFabConBOM} con BOM + ${nFabSinBOM} sin fórmula.
-          <strong>Vta 3M</strong> = proyección 3 meses. <strong>Stock Ins.</strong>: ✅=hay / ❌=sin stock / ➖=no aplica.
-          <strong>Produc.</strong> = uds fabricables con insumos actuales.
+          ${nFabConBOM} con BOM + ${nFabSinBOM} sin fórmula${nSubEnsambles>0?' ('+nSubEnsambles+' sub-ensambles excluidos)':''}.
+          <strong>Vta 3M</strong> = proyección 3 meses. <strong>Stock Ins.</strong>: ✅=hay stock / ❌=sin stock / ➖=no aplica (no tiene ese componente).
+          <strong>Produc.</strong> = uds fabricables con insumos actuales (cuello de botella).
         </p>
         ${fabTop.length === 0
           ? `<p style="color:var(--txt2);padding:20px;text-align:center;">
@@ -2020,7 +2053,7 @@ async function renderMRPPage(c) {
               </tbody></table>
           </div>
           <p style="color:var(--txt2);font-size:10px;margin-top:6px;">
-            ${nFabTotal} productos fabricación (${nFabConBOM} con BOM, ${nFabSinBOM} sin BOM).
+            ${nFabTotal} PTs fabricación (${nFabConBOM} con BOM, ${nFabSinBOM} sin fórmula). ${nSubEnsambles} sub-ensambles excluidos.
             Marcas fab: ${[...marcasFab].join(', ') || 'config pendiente'}.
           </p>`
         }
