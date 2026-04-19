@@ -272,6 +272,8 @@ const SUPABASE_URL = 'https://xgdzzndfpxfghixsngas.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhnZHp6bmRmcHhmZ2hpeHNuZ2FzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNjMyMzksImV4cCI6MjA5MTkzOTIzOX0.UioTkXAb3ESiNmKOxpWuDoOtq1ve7258ZV_3Z_mZbt0';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
 
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=String(s);return d.innerHTML;}
+
 const MARCAS = ['Cher Fragancias','Cher Beauty','Bensimon','Fascino','Tucci','Sarkany',
   'Margarita','Oreiro Love','L\'Inedito','Al Shams','Get the Look','K-beauty'];
 
@@ -516,10 +518,12 @@ async function initApp(user) {
     loadPlantillas()
   ]);
 
+  if(profile.role==='admin'){try{const{data:cr}=await sb.from('profiles').select('id,role,can_approve_solicitud').eq('email','crios@cdimex.com.ar').single();if(cr&&(cr.role!=='compras'||!cr.can_approve_solicitud))await sb.from('profiles').update({role:'compras',can_approve_solicitud:true}).eq('id',cr.id);}catch(e){}}
+
   // Show/hide tabs based on role
   const comexTab = document.querySelector('[data-tab="comex"]');
   if (comexTab) {
-    if (profile.role === 'compras' && profile.sub_roles?.includes('comex') || profile.can_approve_solicitud) {
+    if (profile.role === 'compras' && profile.sub_roles?.includes('comex')) || profile.can_approve_solicitud) {
       comexTab.classList.remove('hidden');
     } else {
       comexTab.classList.add('hidden');
@@ -528,21 +532,21 @@ async function initApp(user) {
   // Stock tab for compras and admin
   const stockTab = document.querySelector('[data-tab="stock"]');
   if (stockTab) {
-    if (['compras','admin'].includes(profile.role)) {
+    if (['compras','calidad','admin'].includes(profile.role)) {
       stockTab.classList.remove('hidden');
     }
   }
   // MRP tab for compras and admin
   const mrpTab = document.querySelector('[data-tab="mrp"]');
   if (mrpTab) {
-    if (['compras','admin'].includes(profile.role)) {
+    if (['compras','calidad','admin'].includes(profile.role)) {
       mrpTab.classList.remove('hidden');
     }
   }
   // S&OP tab for compras and admin
   const sopTab = document.querySelector('[data-tab="sop"]');
   if (sopTab) {
-    if (['compras','admin'].includes(profile.role)) {
+    if (['compras','calidad','admin'].includes(profile.role)) {
       sopTab.classList.remove('hidden');
     }
   }
@@ -1052,9 +1056,9 @@ function toggleSelectAll(checked) {
 }
 
 function filterSolicitudes() {
-  const q = document.getElementById('searchSol').value.toLowerCase();
-  const st = document.getElementById('filterStatus').value;
-  const mk = document.getElementById('filterMarca').value;
+  const q = document.getElementById('searchSol')?.value?.toLowerCase()||'';
+  const st = document.getElementById('filterStatus')?.value||'';
+  const mk = document.getElementById('filterMarca')?.value||'';
   let filtered = solicitudes;
   if (q) filtered = filtered.filter(s => s.nombre.toLowerCase().includes(q) || String(s.numero).includes(q));
   if (st) filtered = filtered.filter(s => s.status === st);
@@ -1090,7 +1094,7 @@ function renderAprobaciones(c) {
 // COMEX TAB
 // =============================================
 function renderComex(c) {
-  const comexSol = solicitudes.filter(s => ['OC emitida','Comex - Pago y seguimiento','En tránsito'].includes(s.status));
+  const comexSol = solicitudes.filter(s => ['OC emitida','Comex - Proforma y pago','Orden de producción','En producción','Inspección pre-embarque','Booking shipping','En tránsito','Nacionalización'].includes(s.status));
   c.innerHTML = `
     <div class="section">
       <h3>Seguimiento Comex (${comexSol.length})</h3>
@@ -1291,6 +1295,7 @@ async function loadStockData() {
     stockData = null;
     stockProductos = [];
     configMarcasData = [];
+    produccionesData = [];
   }
 }
 
@@ -1834,7 +1839,7 @@ async function renderMRPPage(c) {
       const vtaForecast = vtaMes * 12;
       const vtaHistorica = (typeof VENTAS_2025 !== 'undefined' && VENTAS_2025[codigo]) ? VENTAS_2025[codigo][0] : 0;
       const vtaAnual = Math.max(vtaForecast, vtaHistorica);
-      let abc = 'D'; if (vtaAnual >= 80000) abc = 'A'; else if (vtaAnual >= 40000) abc = 'B'; else if (vtaAnual >= 12000) abc = 'C';
+      let abc = 'D'; if (vtaAnual >= 70000) abc = 'A'; else if (vtaAnual >= 50000) abc = 'B'; else if (vtaAnual >= 30000) abc = 'C';
       let accion = '', urg = 0;
       if (discMarca) { accion = '⏸️ Disc.'; urg = -1; }
       else if (extMarca) { accion = '✈️ Compra ext.'; urg = 0; }
@@ -2299,7 +2304,7 @@ function crearSolicitudDesdeStock(codigo, marca, cantidad) {
   switchTab('solicitudes');
   setTimeout(() => {
     // Try to open "new" form and pre-fill
-    const btnNew = document.querySelector('[onclick*="showNewSolicitud"]') || document.querySelector('.btn-gold');
+    const btnNew = document.querySelector('[onclick*="openNewSolicitud"]') || document.querySelector('.btn-gold');
     if (btnNew) btnNew.click();
     setTimeout(() => {
       const marcaSel = document.getElementById('solMarca');
@@ -2476,6 +2481,7 @@ async function renderAdmin(c) {
           <th style="text-align:left;padding:8px;">Rol</th>
           <th style="text-align:left;padding:8px;">Sub-roles</th>
           <th style="text-align:center;padding:8px;">Puede aprobar</th>
+          <th style="text-align:center;padding:8px;">Acciones</th>
         </tr>
         ${allProfiles.map(p => `<tr style="border-bottom:1px solid var(--border);">
           <td style="padding:8px;">${p.full_name}</td>
@@ -2557,6 +2563,9 @@ async function renderAdmin(c) {
     console.warn('Config sheets not loaded:', e.message);
   }
 }
+
+function markUserDirty(uid){const b=document.getElementById('saveUser_'+uid);if(b)b.style.display='inline-block';}
+async function saveUserProfile(uid){const r=document.getElementById('role_'+uid);const a=document.getElementById('approve_'+uid);if(!r)return;const{error}=await sb.from('profiles').update({role:r.value,can_approve_solicitud:a?.checked||false}).eq('id',uid);if(error){toast('Error: '+error.message);return;}toast('Usuario actualizado');const b=document.getElementById('saveUser_'+uid);if(b)b.style.display='none';await loadAllProfiles();}
 
 // Admin: Add brand to user
 async function addBrandToUser(userId) {
@@ -4039,7 +4048,8 @@ async function approveItemAesthetic(itemId, solId) {
     const allApproved = items?.every(i => i.status_estetico === 'aprobado');
     if (allApproved) {
       await sb.from('solicitudes').update({ status: 'Esperando muestras técnicas' }).eq('id', solId);
-      await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems aprobados estéticamente' });
+      await completePasoByName(solId, 'Aprobación estética (Marcas)');
+    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems aprobados estéticamente' });
     }
     await loadSolicitudes();
     await openSolicitud(solId);
@@ -4238,7 +4248,7 @@ async function approveInspeccion(solId, tipo) {
 
   // Check if all inspections approved
   const { data: allInsp } = await sb.from('inspecciones').select('resultado').eq('solicitud_id', solId);
-  const allOk = allInsp?.every(i => i.resultado === 'aprobado');
+  const allOk = allInsp && allInsp.length >= 3 && allInsp.every(i => i.resultado === 'aprobado');
   if (allOk) {
     await sb.from('solicitudes').update({ status: 'Booking shipping' }).eq('id', solId);
     await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todas las inspecciones aprobadas - Booking shipping' });
@@ -4302,7 +4312,7 @@ async function submitDesaprobarInspeccion(solId, tipo) {
   await sendEmail(
     ['nguarino@cdimex.com.ar','mjaimes@cdimex.com.ar','nmaggi@cdimex.com.ar'].filter(Boolean),
     `Solicitud #${s?.numero}: Inspección desaprobada - ${tipo}`,
-    wrapEmail(`<p>La inspección <strong>${tipo}</strong> de <strong>${s?.nombre}</strong> fue desaprobada.</p>
+    `<p>La inspección <strong>${tipo}</strong> de <strong>${s?.nombre}</strong> fue desaprobada.</p>
       <p><strong>Motivo:</strong> ${motivo}</p>
       <p><strong>Plazo para resolver:</strong> ${plazo}</p>
       <p>Una vez corregido, se debe volver a aprobar en la app.</p>`)
@@ -4571,6 +4581,7 @@ async function regenerarRetroplan(solId, tipo, fechaLanzamiento) {
 async function changeLaunchDate(id, currentDate) {
   const newDate = prompt('Nueva fecha de lanzamiento (YYYY-MM-DD):', currentDate);
   if (!newDate || newDate === currentDate) return;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(newDate)||isNaN(new Date(newDate+'T12:00:00').getTime())){toast('Fecha inválida');return;}
 
   // Update solicitud
   await sb.from('solicitudes').update({ fecha_lanzamiento: newDate }).eq('id', id);
@@ -4593,8 +4604,8 @@ async function changeLaunchDate(id, currentDate) {
 
   const s = solicitudes.find(x => x.id === id);
   // Notify all involved
-  const { data: allProfiles } = await sb.from('profiles').select('email');
-  const emails = allProfiles?.map(p => p.email) || [];
+  const { data: profileEmails } = await sb.from('profiles').select('email');
+  const emails = profileEmails?.map(p => p.email) || [];
   await sendEmail(emails,
     `CAMBIO DE FECHA: Solicitud #${s.numero} — ${s.nombre}`,
     `<p><strong>${currentProfile.full_name}</strong> cambió la fecha de lanzamiento de <strong>${s.nombre}</strong>.</p>
@@ -4865,8 +4876,8 @@ async function renderSOPDashboard(c) {
     ]);
 
     const configMarcas = cmRes.data || [];
-    const marcasFab = new Set(configMarcas.filter(m => m.tipo === 'fabricacion').map(m => m.nombre.toUpperCase()));
-    const marcasCompra = new Set(configMarcas.filter(m => m.tipo === 'compra_directa' || m.tipo === 'importacion').map(m => m.nombre.toUpperCase()));
+    const marcasFab = new Set(configMarcas.filter(m => (m.tipo_abastecimiento||'').toLowerCase().includes('fabric')).map(m => (m.marca||'').toUpperCase()));
+    const marcasCompra = new Set(configMarcas.filter(m => (function(){const t=(m.tipo_abastecimiento||'').toLowerCase();return t.includes('compra')||t.includes('import');}).call(this)).map(m=>(m.marca||'').toUpperCase()));
 
     // Build indices
     const insIdx = {}; insumos.forEach(i => { insIdx[i.codigo] = i; });
@@ -5093,7 +5104,7 @@ async function renderSOPDashboard(c) {
                 const outs = stockouts.filter(p=>p.abc===cls).length;
                 return `<tr style="border-bottom:1px solid var(--border);">
                   <td style="padding:6px;"><span style="font-weight:bold;font-size:16px;color:${abcClr[cls]};">${cls}</span>
-                    <span style="font-size:10px;color:var(--txt2);margin-left:4px;">${cls==='A'?'>80k':cls==='B'?'40-80k':cls==='C'?'12-40k':'<12k'}/aÃ±o</span></td>
+                    <span style="font-size:10px;color:var(--txt2);margin-left:4px;">${cls==='A'?'>70k':cls==='B'?'50-70k':cls==='C'?'30-50k':'<30k'}/aÃ±o</span></td>
                   <td style="padding:6px;text-align:center;">${cnt}</td>
                   <td style="padding:6px;text-align:right;">${fmtK(rev)} uds</td>
                   <td style="padding:6px;text-align:right;font-weight:bold;">${pct}%</td>
