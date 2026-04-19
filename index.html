@@ -1614,6 +1614,27 @@ async function renderMRPPage(c) {
     const insumos = insRes.data || [];
 
     // ══════════════════════════════════════════
+    // DEBUG: dump raw data to console for diagnosis
+    // ══════════════════════════════════════════
+    console.group('🏭 MRP DEBUG');
+    console.log('stock_insumos:', insumos.length, 'rows. Con stock>0:', insumos.filter(i=>i.stock_fisico>0).length);
+    console.log('bom_productos:', bomRows.length, 'rows');
+    console.log('Sample insumos (first 10):', insumos.slice(0,10));
+    console.log('Sample BOM (first 10):', bomRows.slice(0,10));
+    // Check match: how many BOM codigo_insumo exist in stock_insumos?
+    const insCodigoSet = new Set(insumos.map(i=>i.codigo));
+    const bomInsCodigos = [...new Set(bomRows.map(b=>b.codigo_insumo))];
+    const matched = bomInsCodigos.filter(c=>insCodigoSet.has(c));
+    const unmatched = bomInsCodigos.filter(c=>!insCodigoSet.has(c));
+    console.log(`BOM insumo codes: ${bomInsCodigos.length} unique. Matched in stock_insumos: ${matched.length}. Unmatched: ${unmatched.length}`);
+    if (unmatched.length > 0) console.log('Unmatched BOM insumo codes (first 20):', unmatched.slice(0,20));
+    // Check tipos
+    const tipoCount = {};
+    insumos.forEach(i => { tipoCount[i.tipo_insumo_global||'NULL'] = (tipoCount[i.tipo_insumo_global||'NULL']||0)+1; });
+    console.log('Tipos insumos:', tipoCount);
+    console.groupEnd();
+
+    // ══════════════════════════════════════════
     // 1. ÍNDICES
     // ══════════════════════════════════════════
     const insIdx = {};
@@ -1928,6 +1949,33 @@ async function renderMRPPage(c) {
     const nFabTotal = fabActivos.length;
     const nFabConBOM = fabActivos.filter(p => p.hasBOM).length;
     const nFabSinBOM = nFabTotal - nFabConBOM;
+
+    // DEBUG: BOM products detail
+    console.group('🔍 BOM Products Debug');
+    const bomProds = fabActivos.filter(p => p.hasBOM);
+    console.log(`${bomProds.length} productos con BOM:`);
+    bomProds.slice(0, 5).forEach(p => {
+      console.log(`  ${p.codigo} ${p.nombre} | stk=${p.stock} prod=${p.prod} produc=${p.producibles} | insBot=${p.insBot} insEst=${p.insEst} insEse=${p.insEse}`);
+      console.log('    Componentes:', p.componentes.map(c => ({
+        cod: c.codigo_insumo,
+        det: (c.detalle_insumo||'').substring(0,30),
+        qty: c.cantidad_formula,
+        insMatch: !!insIdx[c.codigo_insumo],
+        stk: insIdx[c.codigo_insumo]?.stock_fisico,
+        tipo: insIdx[c.codigo_insumo]?.tipo_insumo_global
+      })));
+    });
+    // Debug insCompra calculation
+    let debugDeficits = 0;
+    bomProds.forEach(p => {
+      const necTotal = p.demDia * COB_PIPE;
+      const disp = p.stock + p.prod + p.producibles;
+      const deficit = Math.max(0, necTotal - disp);
+      if (deficit > 0) debugDeficits++;
+    });
+    console.log(`Products with deficit: ${debugDeficits}/${bomProds.length}`);
+    console.log(`insCompra items: ${insCompra.length}`);
+    console.groupEnd();
     const nFabUrg = fabActivos.filter(p => p.urg >= 2).length;
     const nCompUrg = compraTop.filter(p => p.urg >= 2).length;
     const cobClr = d => d < 30 ? 'var(--red)' : d < 60 ? 'var(--orange)' : d < 90 ? 'var(--gold)' : 'var(--green)';
@@ -1956,6 +2004,27 @@ async function renderMRPPage(c) {
         <div class="kpi"><div class="num">${nFabTotal}</div><div class="label">PT Fabricación</div></div>
         <div class="kpi"><div class="num" style="color:var(--green)">${nBOM} PT</div><div class="label">${nBOM} BOM${nSubEnsambles>0?', '+nSubEnsambles+' sub-ens.':''}</div></div>
       </div>
+
+      ${insumos.length === 0 || insumos.filter(i=>i.stock_fisico>0).length === 0 ? `
+      <div style="background:rgba(255,50,50,0.15);border:1px solid var(--red);padding:10px 14px;border-radius:8px;margin-bottom:10px;font-size:12px;">
+        <strong style="color:var(--red);">⚠️ PROBLEMA: Stock de insumos no disponible</strong><br>
+        <span style="color:var(--txt);">
+          stock_insumos: <strong>${insumos.length}</strong> registros en DB, <strong>${insumos.filter(i=>i.stock_fisico>0).length}</strong> con stock > 0.<br>
+          bom_productos: <strong>${bomRows.length}</strong> componentes, <strong>${[...new Set(bomRows.map(b=>b.codigo_principal))].length}</strong> PTs distintos.<br>
+          Match BOM↔Insumos: <strong>${bomRows.filter(b=>insIdx[b.codigo_insumo]).length}/${bomRows.length}</strong>
+          ${insumos.length === 0
+            ? '<br><strong>→ La tabla stock_insumos está VACÍA. Ejecutá "Sincronizar" para cargar los datos del BOM.</strong>'
+            : insumos.filter(i=>i.stock_fisico>0).length === 0
+              ? '<br><strong>→ Todos los insumos tienen stock_fisico = 0. Verificar que la columna STOCK_FISICO del sheet BOM se esté leyendo correctamente.</strong>'
+              : ''
+          }
+          ${bomRows.length > 0 && bomRows.filter(b=>insIdx[b.codigo_insumo]).length === 0
+            ? '<br><strong>→ Ningún codigo_insumo del BOM coincide con stock_insumos. Los códigos no matchean.</strong>'
+            : ''
+          }
+        </span>
+        <br><small style="color:var(--txt2);">Abrí la consola del navegador (F12) para ver datos de diagnóstico detallados.</small>
+      </div>` : ''}
 
       <div style="color:var(--txt2);font-size:11px;margin-bottom:10px;background:var(--bg3);padding:8px 12px;border-radius:6px;">
         <strong>Política:</strong> Cob. PT ${COB_PT}d + Cob. insumos ${COB_INS}d = ${COB_PIPE}d pipeline |
