@@ -1259,17 +1259,20 @@ async function renderMetricas(c) {
 let stockData = null;
 let stockProductos = [];
 let configMarcasData = [];
+let produccionesData = [];
 
 async function loadStockData() {
   try {
-    const [alertRes, prodRes, cfgRes] = await Promise.allSettled([
+    const [alertRes, prodRes, cfgRes, prodnRes] = await Promise.allSettled([
       sb.rpc('get_stock_alerts_data'),
       sb.from('stock_productos').select('*').order('marca').order('cobertura_meses', { ascending: true }),
       sb.from('config_marcas').select('*').order('marca'),
+      sb.from('producciones_planificadas').select('codigo, mes, cantidad').gte('mes', new Date().toISOString().substring(0, 7) + '-01'),
     ]);
     stockData = (alertRes.status === 'fulfilled' && !alertRes.value?.error) ? alertRes.value?.data : null;
     stockProductos = (prodRes.status === 'fulfilled' && !prodRes.value?.error) ? (prodRes.value?.data || []) : [];
     configMarcasData = (cfgRes.status === 'fulfilled' && !cfgRes.value?.error) ? (cfgRes.value?.data || []) : [];
+    produccionesData = (prodnRes.status === 'fulfilled' && !prodnRes.value?.error) ? (prodnRes.value?.data || []) : [];
   } catch (e) {
     console.warn('Error loading stock data:', e.message);
     stockData = null;
@@ -1367,7 +1370,7 @@ async function renderStock(c) {
               <span style="font-size:16px;font-weight:bold;color:${m.en_riesgo > 0 ? 'var(--red)' : 'var(--green)'}">${m.en_riesgo || 0}</span>
               <span style="font-size:11px;color:var(--txt2);">${m.cobertura_promedio || 0}m avg</span>
             </div>
-            <div style="font-size:10px;color:var(--txt2);margin-top:2px;">LT: ${m.lead_time}m • ${m.total_productos} prod</div>
+            <div style="font-size:10px;color:var(--txt2);margin-top:2px;">LT: ${m.lead_time_default || '?'}m • ${m.total_productos} prod</div>
           </div>
         `).join('')}
       </div>
@@ -1384,6 +1387,7 @@ async function renderStock(c) {
               <th style="padding:8px;text-align:right;color:var(--txt2);">Stock</th>
               <th style="padding:8px;text-align:right;color:var(--txt2);">Vta/mes</th>
               <th style="padding:8px;text-align:right;color:var(--txt2);">Forecast</th>
+              <th style="padding:8px;text-align:right;color:var(--txt2);">Prod. planif.</th>
               <th style="padding:8px;text-align:right;color:var(--txt2);">Cobertura</th>
               <th style="padding:8px;text-align:center;color:var(--txt2);">Lead Time</th>
               <th style="padding:8px;text-align:center;color:var(--txt2);">Nivel</th>
@@ -1485,13 +1489,20 @@ function filterStockTable() {
   const tbody = document.getElementById('stockTableBody');
   if (!tbody) return;
 
+  // Build production lookup: sum of all planned production per codigo
+  const prodLookup = {};
+  (produccionesData || []).forEach(pp => {
+    prodLookup[pp.codigo] = (prodLookup[pp.codigo] || 0) + (pp.cantidad || 0);
+  });
+
   tbody.innerHTML = filtered.slice(0, 200).map(p => {
     const cm = configMarcasData.find(c => c.marca === p.marca);
     const lt = cm?.lead_time_meses || 3;
+    const tipoAbast = cm?.tipo_abastecimiento || 'fabricacion';
     const demanda = p.forecast_proximo_mes || p.venta_mensual_avg;
-    const compraSugerida = Math.max(0, Math.round(lt * demanda - p.stock_actual));
-
-    const ltDisplay = p.lead_time_meses ? `${p.lead_time_meses}m` : `${lt}m <span style="font-size:9px;color:var(--txt2);">(marca)</span>`;
+    const prodPlanif = prodLookup[p.codigo] || 0;
+    // Compra sugerida: demanda durante lead time - (stock + producción planificada)
+    const compraSugerida = Math.max(0, Math.round(lt * demanda - p.stock_actual - prodPlanif));
 
     return `<tr style="border-bottom:1px solid var(--border);background:${riskBg(p.nivel)};">
       <td style="padding:8px;font-family:monospace;font-size:12px;">${p.codigo}</td>
@@ -1500,10 +1511,11 @@ function filterStockTable() {
       <td style="padding:8px;text-align:right;font-weight:bold;">${Math.round(p.stock_actual).toLocaleString('es-AR')}</td>
       <td style="padding:8px;text-align:right;">${Math.round(p.venta_mensual_avg).toLocaleString('es-AR')}</td>
       <td style="padding:8px;text-align:right;">${p.forecast_proximo_mes ? Math.round(p.forecast_proximo_mes).toLocaleString('es-AR') : '-'}</td>
+      <td style="padding:8px;text-align:right;color:${prodPlanif > 0 ? 'var(--green)' : 'var(--txt2)'};">${prodPlanif > 0 ? Math.round(prodPlanif).toLocaleString('es-AR') : '-'}</td>
       <td style="padding:8px;text-align:right;font-weight:bold;color:${riskColor(p.nivel)};">${p.cobertura_meses}m</td>
       <td style="padding:8px;text-align:center;">
         <input type="number" value="${lt}" min="0.5" max="24" step="0.5" style="width:55px;text-align:center;font-size:11px;padding:2px 4px;"
-          onchange="saveProductLeadTime('${p.id}',this.value)" title="Lead time de este insumo (meses)">
+          onchange="saveProductLeadTime('${p.id}',this.value)" title="Lead time (meses)">
       </td>
       <td style="padding:8px;text-align:center;">
         <span style="background:${riskBg(p.nivel)};color:${riskColor(p.nivel)};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:bold;">${p.nivel}</span>
@@ -1516,10 +1528,10 @@ function filterStockTable() {
   }).join('');
 
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--txt2);">No hay productos que coincidan con los filtros</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" style="padding:20px;text-align:center;color:var(--txt2);">No hay productos que coincidan con los filtros</td></tr>';
   }
   if (filtered.length > 200) {
-    tbody.innerHTML += `<tr><td colspan="11" style="padding:8px;text-align:center;color:var(--txt2);font-size:12px;">Mostrando 200 de ${filtered.length} productos. Usá los filtros para acotar.</td></tr>`;
+    tbody.innerHTML += `<tr><td colspan="12" style="padding:8px;text-align:center;color:var(--txt2);font-size:12px;">Mostrando 200 de ${filtered.length} productos. Usá los filtros para acotar.</td></tr>`;
   }
 }
 
@@ -1583,11 +1595,17 @@ async function renderMRPPage(c) {
     mrpData = mrpRes.data || {};
     const configMarcas = cmRes.data || [];
 
-    // Also get compra brands gap from stock_productos
-    const { data: compraProducts } = await sb.from('stock_productos')
-      .select('codigo, nombre, marca, stock_actual, venta_mensual_avg, forecast_proximo_mes, cobertura_meses')
-      .neq('marca', 'Sin asignar')
-      .or('venta_mensual_avg.gt.0,forecast_proximo_mes.gt.0');
+    // Also get ALL products + production data
+    const [allProdRes, prodnRes] = await Promise.all([
+      sb.from('stock_productos').select('codigo, nombre, marca, stock_actual, venta_mensual_avg, forecast_proximo_mes, cobertura_meses').neq('marca', 'Sin asignar'),
+      sb.from('producciones_planificadas').select('codigo, mes, cantidad').gte('mes', new Date().toISOString().substring(0, 7) + '-01'),
+    ]);
+    const allProducts = allProdRes.data || [];
+    const prodData = prodnRes.data || [];
+
+    // Build production lookup
+    const prodLookup = {};
+    prodData.forEach(pp => { prodLookup[pp.codigo] = (prodLookup[pp.codigo] || 0) + (pp.cantidad || 0); });
 
     // Classify brands
     const marcasFab = new Set(configMarcas.filter(cm => cm.tipo_abastecimiento === 'fabricacion').map(cm => cm.marca));
@@ -1595,26 +1613,47 @@ async function renderMRPPage(c) {
     const marcaLT = {};
     configMarcas.forEach(cm => { marcaLT[cm.marca] = cm.lead_time_meses || 3; });
 
-    // Build compra brands gap list
-    const compraGap = (compraProducts || [])
-      .filter(p => marcasCompra.has(p.marca))
+    // Coverage thresholds (in months)
+    const COBERTURA_PT = 2;          // PT regular: 60 días
+    const COBERTURA_INSUMOS = 2.5;   // Insumos: 75 días
+    const COBERTURA_LANZAMIENTO = 3; // PT lanzamiento: 90 días
+    const COBERTURA_COMPRA_EXT = 2;  // PT comprado exterior: 60 días
+
+    // Build compra brands gap list (simple: forecast × LT − stock)
+    const compraGap = allProducts
+      .filter(p => marcasCompra.has(p.marca) && (p.venta_mensual_avg > 0 || p.forecast_proximo_mes > 0))
       .map(p => {
         const lt = marcaLT[p.marca] || 3;
-        const demanda = (p.forecast_proximo_mes || p.venta_mensual_avg || 0) * 3;
-        const gap = Math.max(0, Math.round(demanda - p.stock_actual));
-        const necesidadLT = Math.round((p.forecast_proximo_mes || p.venta_mensual_avg || 0) * lt);
-        const gapLT = Math.max(0, necesidadLT - p.stock_actual);
-        return { ...p, lead_time: lt, demanda_3m: Math.round(demanda), gap_3m: gap, necesidad_lt: necesidadLT, gap_lt: Math.round(gapLT) };
+        const vtaMes = p.forecast_proximo_mes || p.venta_mensual_avg || 0;
+        const necesidadLT = Math.round(vtaMes * lt);
+        const coberturaMinima = vtaMes * COBERTURA_COMPRA_EXT; // 60 días mínimo
+        const gapLT = Math.max(0, Math.round(necesidadLT - p.stock_actual));
+        const gapCobertura = Math.max(0, Math.round(coberturaMinima - p.stock_actual));
+        return { ...p, lead_time: lt, vta_mes: vtaMes, necesidad_lt: necesidadLT, gap_lt: gapLT, gap_cobertura: gapCobertura, cobertura_dias: vtaMes > 0 ? Math.round(p.stock_actual / vtaMes * 30) : 999 };
       })
       .filter(p => p.gap_lt > 0)
-      .sort((a, b) => b.gap_lt - a.gap_lt);
+      .sort((a, b) => a.cobertura_dias - b.cobertura_dias);
+
+    // Build fabrication products list (ALL fab products with demand, not just those with BOM)
+    const fabProductosAll = allProducts
+      .filter(p => marcasFab.has(p.marca) && (p.venta_mensual_avg > 0 || p.forecast_proximo_mes > 0))
+      .map(p => {
+        const vtaMes = p.forecast_proximo_mes || p.venta_mensual_avg || 0;
+        const demanda3m = Math.round(vtaMes * 3);
+        const prodPlanif = prodLookup[p.codigo] || 0;
+        const coberturaMinima = vtaMes * COBERTURA_PT; // 60 días stock mínimo
+        const gapProd = Math.max(0, Math.round(demanda3m - p.stock_actual - prodPlanif));
+        const coberturaDias = vtaMes > 0 ? Math.round((p.stock_actual + prodPlanif) / vtaMes * 30) : 999;
+        // Check if product has BOM / envase data from MRP RPC
+        const mrpMatch = (mrpData?.por_producto || []).find(mp => mp.codigo === p.codigo);
+        const capEnvase = mrpMatch ? mrpMatch.capacidad_envase : null;
+        return { ...p, vta_mes: vtaMes, demanda_3m: demanda3m, prod_planif: prodPlanif, gap_prod: gapProd, cobertura_dias: coberturaDias, capacidad_envase: capEnvase, tiene_bom: !!mrpMatch };
+      })
+      .filter(p => p.gap_prod > 0 || (p.capacidad_envase !== null && p.capacidad_envase < p.demanda_3m) || p.cobertura_dias < COBERTURA_PT * 30)
+      .sort((a, b) => a.cobertura_dias - b.cobertura_dias);
 
     const resumen = mrpData?.resumen || {};
-    const porProducto = mrpData?.por_producto || [];
     const compras = mrpData?.compras_sugeridas || [];
-
-    // Fabricación products only
-    const fabProductos = porProducto.filter(p => marcasFab.has(p.marca));
 
     const tipoLabel = { frasco: '🧴 Frascos', estuche: '📦 Estuches', esencia: '💧 Esencias', tapa: '🔲 Tapas', collar: '⭕ Collares', valvula: '🔧 Válvulas', otro: '📋 Otros' };
     const tipoColor = { frasco: 'var(--red)', estuche: 'var(--orange)', esencia: 'var(--gold)', tapa: 'var(--blue)', collar: 'var(--violet)', valvula: 'var(--txt2)', otro: 'var(--txt2)' };
@@ -1641,19 +1680,83 @@ async function renderMRPPage(c) {
         <div class="kpi"><div class="num">${resumen.total_pt || 0}</div><div class="label">PT con BOM</div></div>
         <div class="kpi"><div class="num">${resumen.total_insumos || 0}</div><div class="label">Insumos registrados</div></div>
         <div class="kpi"><div class="num" style="color:var(--red)">${resumen.insumos_criticos || 0}</div><div class="label">Envases sin stock</div></div>
-        <div class="kpi"><div class="num" style="color:var(--orange)">${fabProductos.length}</div><div class="label">Fab. con gap</div></div>
+        <div class="kpi"><div class="num" style="color:var(--orange)">${fabProductosAll.length}</div><div class="label">Fab. con gap</div></div>
         <div class="kpi"><div class="num" style="color:var(--violet)">${compraGap.length}</div><div class="label">Compra con gap</div></div>
       </div>
 
+      <p style="color:var(--txt2);font-size:11px;margin-bottom:12px;background:var(--bg3);padding:8px 12px;border-radius:6px;">
+        📋 <strong>Coberturas mínimas:</strong> PT fabricación: 60 días | Insumos: 75 días | PT lanzamiento: 90 días | PT compra exterior: 60 días
+      </p>
+
       <!-- Sub-tabs -->
       <div style="display:flex;gap:8px;margin-bottom:16px;">
-        <button class="btn-gold btn-sm" onclick="showMrpTab('compras')" id="mrpTabCompras">🛒 Compras Sugeridas — Insumos (${compras.length})</button>
-        <button class="btn-outline btn-sm" onclick="showMrpTab('fabricacion')" id="mrpTabFab">🏭 Fabricación (${fabProductos.length})</button>
+        <button class="btn-gold btn-sm" onclick="showMrpTab('fabricacion')" id="mrpTabFab">🏭 Fabricación (${fabProductosAll.length})</button>
+        <button class="btn-outline btn-sm" onclick="showMrpTab('compras')" id="mrpTabCompras">🛒 Insumos a comprar (${compras.length})</button>
         <button class="btn-outline btn-sm" onclick="showMrpTab('comprapt')" id="mrpTabCompraPT">🛍️ Compra PT (${compraGap.length})</button>
       </div>
 
+      <!-- Tab: Fabricación — ALL fab products with gap -->
+      <div id="mrpTabFabContent" class="card">
+        <h3 style="color:var(--gold);margin-bottom:4px;">Productos de Fabricación — Gap de Producción</h3>
+        <p style="color:var(--txt2);font-size:11px;margin-bottom:12px;">
+          Todos los productos de marcas propias que necesitan atención. Cobertura = (Stock + Prod. planificada) / Venta mensual.
+          Si tiene BOM, muestra capacidad de envase como cuello de botella.
+        </p>
+        <div style="margin-bottom:12px;display:flex;gap:8px;">
+          <select id="mrpFabFilterMarca" onchange="filterMrpFab()" style="width:auto;min-width:180px;">
+            <option value="">Todas las marcas</option>
+            ${[...new Set(fabProductosAll.map(p => p.marca))].sort().map(m => `<option value="${m}">${m}</option>`).join('')}
+          </select>
+        </div>
+        ${fabProductosAll.length === 0
+          ? '<p style="color:var(--green);padding:12px;">✅ Todos los productos de fabricación están cubiertos.</p>'
+          : `
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;" id="mrpFabTable">
+              <tr style="border-bottom:1px solid var(--border);background:var(--bg3);">
+                <th style="padding:6px 8px;text-align:left;">Código</th>
+                <th style="padding:6px 8px;text-align:left;">Producto</th>
+                <th style="padding:6px 8px;text-align:left;">Marca</th>
+                <th style="padding:6px 8px;text-align:right;">Stock PT</th>
+                <th style="padding:6px 8px;text-align:right;">Vta/mes</th>
+                <th style="padding:6px 8px;text-align:right;">Demanda 3m</th>
+                <th style="padding:6px 8px;text-align:right;">Prod. planif.</th>
+                <th style="padding:6px 8px;text-align:right;">Cap. envase</th>
+                <th style="padding:6px 8px;text-align:right;">Cobertura</th>
+                <th style="padding:6px 8px;text-align:right;color:var(--red);">Gap</th>
+                <th style="padding:6px 8px;text-align:center;">Estado</th>
+              </tr>
+              ${fabProductosAll.slice(0, 300).map(p => {
+                const envaseOk = p.capacidad_envase === null || p.capacidad_envase >= p.demanda_3m;
+                const cobDias = p.cobertura_dias;
+                let estado, estadoColor;
+                if (p.stock_actual <= 0 && p.prod_planif <= 0) { estado = '🔴 Sin stock'; estadoColor = 'var(--red)'; }
+                else if (!envaseOk) { estado = '🔴 Sin envase'; estadoColor = 'var(--red)'; }
+                else if (cobDias < 30) { estado = '🟠 Crítico'; estadoColor = 'var(--orange)'; }
+                else if (cobDias < 60) { estado = '🟡 Producir'; estadoColor = 'var(--gold)'; }
+                else { estado = '⚠️ Atención'; estadoColor = 'var(--txt2)'; }
+                return `
+                <tr style="border-bottom:1px solid var(--border);" data-marca="${p.marca}">
+                  <td style="padding:6px 8px;font-family:monospace;">${p.codigo}</td>
+                  <td style="padding:6px 8px;">${(p.nombre || '').substring(0, 40)}</td>
+                  <td style="padding:6px 8px;">${p.marca}</td>
+                  <td style="padding:6px 8px;text-align:right;font-weight:bold;color:${p.stock_actual <= 0 ? 'var(--red)' : 'var(--txt)'};">${Math.round(p.stock_actual).toLocaleString()}</td>
+                  <td style="padding:6px 8px;text-align:right;">${Math.round(p.vta_mes).toLocaleString()}</td>
+                  <td style="padding:6px 8px;text-align:right;">${Math.round(p.demanda_3m).toLocaleString()}</td>
+                  <td style="padding:6px 8px;text-align:right;color:${p.prod_planif > 0 ? 'var(--green)' : 'var(--txt2)'};">${p.prod_planif > 0 ? Math.round(p.prod_planif).toLocaleString() : '-'}</td>
+                  <td style="padding:6px 8px;text-align:right;color:${!envaseOk ? 'var(--red)' : p.capacidad_envase !== null ? 'var(--green)' : 'var(--txt2)'};">${p.capacidad_envase !== null ? Math.round(p.capacidad_envase).toLocaleString() : 'S/BOM'}</td>
+                  <td style="padding:6px 8px;text-align:right;font-weight:bold;color:${cobDias < 60 ? 'var(--red)' : cobDias < 90 ? 'var(--orange)' : 'var(--green)'};">${cobDias}d</td>
+                  <td style="padding:6px 8px;text-align:right;color:var(--red);font-weight:bold;">${Math.round(p.gap_prod).toLocaleString()}</td>
+                  <td style="padding:6px 8px;text-align:center;font-size:11px;color:${estadoColor};">${estado}</td>
+                </tr>`;
+              }).join('')}
+            </table>
+          </div>`
+        }
+      </div>
+
       <!-- Tab: Compras Sugeridas de Insumos -->
-      <div id="mrpTabComprasContent" class="card">
+      <div id="mrpTabComprasContent" class="card" style="display:none;">
         <h3 style="color:var(--gold);margin-bottom:4px;">Insumos a comprar para cubrir producción</h3>
         <p style="color:var(--txt2);font-size:11px;margin-bottom:12px;">Basado en: demanda 3 meses − stock PT → necesidad de producción → explosión BOM → gap de insumos. Prioridad: frascos (4.5m LT) > estuches (4m) > esencias (1-2m).</p>
         ${Object.keys(comprasPorTipo).length === 0
@@ -1687,47 +1790,6 @@ async function renderMRPPage(c) {
         `).join('')}
       </div>
 
-      <!-- Tab: Fabricación — PT con gap de insumos -->
-      <div id="mrpTabFabContent" class="card" style="display:none;">
-        <h3 style="color:var(--gold);margin-bottom:4px;">Productos de Fabricación — Gap de Producción</h3>
-        <p style="color:var(--txt2);font-size:11px;margin-bottom:12px;">Marcas propias: Bensimon, Sarkany, Tucci, Cher Fragancias, etc. Muestra demanda 3m vs stock + producción planificada + capacidad de envase (cuello de botella).</p>
-        ${fabProductos.length === 0
-          ? '<p style="color:var(--green);padding:12px;">✅ Todos los productos de fabricación están cubiertos.</p>'
-          : `
-          <div style="overflow-x:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-              <tr style="border-bottom:1px solid var(--border);background:var(--bg3);">
-                <th style="padding:6px 8px;text-align:left;">Código</th>
-                <th style="padding:6px 8px;text-align:left;">Producto</th>
-                <th style="padding:6px 8px;text-align:left;">Marca</th>
-                <th style="padding:6px 8px;text-align:right;">Stock PT</th>
-                <th style="padding:6px 8px;text-align:right;">Demanda 3m</th>
-                <th style="padding:6px 8px;text-align:right;">Prod. planif.</th>
-                <th style="padding:6px 8px;text-align:right;">Cap. envase</th>
-                <th style="padding:6px 8px;text-align:right;color:var(--red);">Gap</th>
-                <th style="padding:6px 8px;text-align:center;">Estado</th>
-              </tr>
-              ${fabProductos.slice(0, 200).map(p => {
-                const envaseOk = p.capacidad_envase >= p.demanda_periodo;
-                const estado = p.gap_unidades > 0 && !envaseOk ? '🔴 Sin envase' : p.gap_unidades > 0 ? '🟠 Producir' : '🟢 OK';
-                return `
-                <tr style="border-bottom:1px solid var(--border);">
-                  <td style="padding:6px 8px;font-family:monospace;">${p.codigo}</td>
-                  <td style="padding:6px 8px;">${(p.nombre || '').substring(0, 40)}</td>
-                  <td style="padding:6px 8px;">${p.marca}</td>
-                  <td style="padding:6px 8px;text-align:right;">${Math.round(p.stock_pt).toLocaleString()}</td>
-                  <td style="padding:6px 8px;text-align:right;">${Math.round(p.demanda_periodo).toLocaleString()}</td>
-                  <td style="padding:6px 8px;text-align:right;color:var(--txt2);">${Math.round(p.produccion_estimada).toLocaleString()}</td>
-                  <td style="padding:6px 8px;text-align:right;color:${envaseOk ? 'var(--green)' : 'var(--red)'};">${Math.round(p.capacidad_envase).toLocaleString()}</td>
-                  <td style="padding:6px 8px;text-align:right;color:var(--red);font-weight:bold;">${Math.round(p.gap_unidades).toLocaleString()}</td>
-                  <td style="padding:6px 8px;text-align:center;font-size:11px;">${estado}</td>
-                </tr>`;
-              }).join('')}
-            </table>
-          </div>`
-        }
-      </div>
-
       <!-- Tab: Compra PT — marcas compradas con lead time directo -->
       <div id="mrpTabCompraPTContent" class="card" style="display:none;">
         <h3 style="color:var(--gold);margin-bottom:4px;">Productos de Compra — Lead Time Directo</h3>
@@ -1750,6 +1812,7 @@ async function renderMRPPage(c) {
                 <th style="padding:6px 8px;text-align:right;">Stock</th>
                 <th style="padding:6px 8px;text-align:right;">Vta/mes</th>
                 <th style="padding:6px 8px;text-align:right;">Lead Time</th>
+                <th style="padding:6px 8px;text-align:right;">Cobertura</th>
                 <th style="padding:6px 8px;text-align:right;">Necesidad (LT)</th>
                 <th style="padding:6px 8px;text-align:right;color:var(--red);font-weight:bold;">Comprar</th>
                 <th style="padding:6px 8px;text-align:center;">Acción</th>
@@ -1757,11 +1820,12 @@ async function renderMRPPage(c) {
               ${compraGap.slice(0, 200).map(p => `
                 <tr style="border-bottom:1px solid var(--border);" data-marca="${p.marca}">
                   <td style="padding:6px 8px;font-family:monospace;">${p.codigo}</td>
-                  <td style="padding:6px 8px;">${(p.nombre || '').substring(0, 45)}</td>
+                  <td style="padding:6px 8px;">${(p.nombre || '').substring(0, 40)}</td>
                   <td style="padding:6px 8px;">${p.marca}</td>
-                  <td style="padding:6px 8px;text-align:right;">${Math.round(p.stock_actual).toLocaleString()}</td>
-                  <td style="padding:6px 8px;text-align:right;">${Math.round(p.forecast_proximo_mes || p.venta_mensual_avg).toLocaleString()}</td>
+                  <td style="padding:6px 8px;text-align:right;font-weight:bold;color:${p.stock_actual <= 0 ? 'var(--red)' : 'var(--txt)'};">${Math.round(p.stock_actual).toLocaleString()}</td>
+                  <td style="padding:6px 8px;text-align:right;">${Math.round(p.vta_mes).toLocaleString()}</td>
                   <td style="padding:6px 8px;text-align:right;">${p.lead_time}m</td>
+                  <td style="padding:6px 8px;text-align:right;font-weight:bold;color:${p.cobertura_dias < 60 ? 'var(--red)' : p.cobertura_dias < 90 ? 'var(--orange)' : 'var(--green)'};">${p.cobertura_dias}d</td>
                   <td style="padding:6px 8px;text-align:right;">${Math.round(p.necesidad_lt).toLocaleString()}</td>
                   <td style="padding:6px 8px;text-align:right;color:var(--red);font-weight:bold;">${Math.round(p.gap_lt).toLocaleString()}</td>
                   <td style="padding:6px 8px;text-align:center;">
@@ -1803,6 +1867,13 @@ function showMrpTab(tab) {
 function filterMrpCompra() {
   const marca = document.getElementById('mrpCompraFilterMarca')?.value || '';
   document.querySelectorAll('#mrpCompraTable tr[data-marca]').forEach(row => {
+    row.style.display = !marca || row.dataset.marca === marca ? '' : 'none';
+  });
+}
+
+function filterMrpFab() {
+  const marca = document.getElementById('mrpFabFilterMarca')?.value || '';
+  document.querySelectorAll('#mrpFabTable tr[data-marca]').forEach(row => {
     row.style.display = !marca || row.dataset.marca === marca ? '' : 'none';
   });
 }
