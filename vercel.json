@@ -1,5 +1,10 @@
 {
   "framework": null,
+  "functions": {
+    "api/sync-sheets.js": {
+      "maxDuration": 120
+    }
+  },
   "crons": [
     {
       "path": "/api/check-reminders",
