@@ -1934,8 +1934,8 @@ async function renderMRPPage(c) {
     const tLabel = { frasco:'🧴 Frascos',estuche:'📦 Estuches',esencia:'💧 Esencias',tapa:'🔲 Tapas',collar:'⭕ Collares',valvula:'🔧 Válvulas',otro:'📋 Otros' };
     const fmtDate = d => d ? d.toLocaleDateString('es-AR', { day:'2-digit', month:'short' }) : '-';
     const fmtMes = m => { if (!m) return '-'; const d = new Date(m+'T00:00:00'); return d.toLocaleDateString('es-AR',{month:'short',year:'2-digit'}); };
-    // Insumo status icon: ✅ hay stock, ❌ sin stock, ➖ no aplica
-    const insIcon = (v) => v === null ? '<span style="color:var(--txt2)">➖</span>' : v > 0 ? '<span style="color:var(--green)">✅</span>' : '<span style="color:var(--red)">❌</span>';
+    // Insumo stock display: número con color
+    const insNum = (v) => v === null ? '<span style="color:var(--txt2);font-size:8px;">-</span>' : v > 0 ? `<span style="color:var(--green);font-size:9px;">${Math.round(v).toLocaleString()}</span>` : '<span style="color:var(--red);font-weight:bold;font-size:9px;">0</span>';
 
     // ALL products for display (sorted by demanda, top sellers first)
     const fabTop = fabActivos;
@@ -1991,7 +1991,7 @@ async function renderMRPPage(c) {
         </div>
         <p style="color:var(--txt2);font-size:11px;margin-bottom:8px;">
           ${nFabConBOM} con BOM + ${nFabSinBOM} sin fórmula${nSubEnsambles>0?' ('+nSubEnsambles+' sub-ensambles excluidos)':''}.
-          <strong>Vta 3M</strong> = proyección 3 meses. <strong>Stock Ins.</strong>: ✅=hay stock / ❌=sin stock / ➖=no aplica (no tiene ese componente).
+          <strong>Vta 3M</strong> = proyección 3 meses. <strong>Stock Ins.</strong> = cantidad física de cada tipo (Bot=Botella/Frasco, Est=Estuche/Caja, Ese=Esencia). "-" = no tiene ese componente.
           <strong>Produc.</strong> = uds fabricables con insumos actuales (cuello de botella).
         </p>
         ${fabTop.length === 0
@@ -2036,9 +2036,9 @@ async function renderMRPPage(c) {
                   <td style="padding:2px 3px;text-align:right;font-weight:bold;">${p.vtaMes>0?Math.round(p.vtaMes).toLocaleString():'<span style=color:var(--txt2)>-</span>'}</td>
                   <td style="padding:2px 3px;text-align:right;color:var(--txt2);">${p.vta3m>0?Math.round(p.vta3m).toLocaleString():'-'}</td>
                   <td style="padding:2px 3px;text-align:right;color:${p.stock<=0?'var(--red)':'var(--txt)'};">${Math.round(p.stock).toLocaleString()}</td>
-                  <td style="padding:2px 3px;text-align:center;">${p.hasBOM?insIcon(p.insBot):'-'}</td>
-                  <td style="padding:2px 3px;text-align:center;">${p.hasBOM?insIcon(p.insEst):'-'}</td>
-                  <td style="padding:2px 3px;text-align:center;">${p.hasBOM?insIcon(p.insEse):'-'}</td>
+                  <td style="padding:2px 3px;text-align:right;">${p.hasBOM?insNum(p.insBot):'-'}</td>
+                  <td style="padding:2px 3px;text-align:right;">${p.hasBOM?insNum(p.insEst):'-'}</td>
+                  <td style="padding:2px 3px;text-align:right;">${p.hasBOM?insNum(p.insEse):'-'}</td>
                   <td style="padding:2px 3px;text-align:right;color:${p.producibles<=0?(p.hasBOM?'var(--red)':'var(--txt2)'):'var(--green)'};">${p.hasBOM?Math.round(p.producibles).toLocaleString():'-'}</td>
                   <td style="padding:2px 3px;text-align:right;color:${p.prod>0?'var(--green)':'var(--txt2)'};">${p.prod>0?Math.round(p.prod).toLocaleString():'-'}</td>
                   <td style="padding:2px 3px;text-align:center;font-size:9px;color:${p.fechaProd?'var(--gold)':'var(--txt2)'};">${fmtMes(p.fechaProd)}</td>
@@ -2053,8 +2053,12 @@ async function renderMRPPage(c) {
               </tbody></table>
           </div>
           <p style="color:var(--txt2);font-size:10px;margin-top:6px;">
-            ${nFabTotal} PTs fabricación (${nFabConBOM} con BOM, ${nFabSinBOM} sin fórmula). ${nSubEnsambles} sub-ensambles excluidos.
-            Marcas fab: ${[...marcasFab].join(', ') || 'config pendiente'}.
+            📊 ${nFabTotal} PTs fab (${nFabConBOM} BOM, ${nFabSinBOM} sin). ${nSubEnsambles} sub-ens.
+            | 🔗 Insumos: ${insumos.length} en DB, ${bomRows.length} BOM rows,
+            match ${bomRows.filter(b => insIdx[b.codigo_insumo]).length}/${bomRows.length} (${bomRows.length > 0 ? Math.round(bomRows.filter(b => insIdx[b.codigo_insumo]).length / bomRows.length * 100) : 0}%).
+            | ${insumos.filter(i => i.stock_fisico > 0).length}/${insumos.length} con stock>0.
+            | Tipos: ${(() => { const t = {}; insumos.forEach(i => { t[i.tipo_insumo_global||'?'] = (t[i.tipo_insumo_global||'?']||0)+1; }); return Object.entries(t).map(([k,v])=>k+':'+v).join(', '); })()}
+            ${bomRows.filter(b => insIdx[b.codigo_insumo]).length < bomRows.length * 0.5 ? ' | ⚠️ <strong style="color:var(--orange);">Match bajo: verificar sincronización BOM (config_sheets.sheet_name_bom)</strong>' : ''}
           </p>`
         }
       </div>
