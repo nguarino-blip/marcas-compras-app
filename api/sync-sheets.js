@@ -301,6 +301,206 @@ async function syncForecast(sheets, config, supabase) {
   return { updated: updates.length };
 }
 
+// ─── SYNC 4: BOM (BASE BRUTA — producto → insumos) ───
+async function syncBOM(sheets, config, supabase) {
+  if (!config.sheet_id_bom) return { updated: 0, skipped: 'No sheet_id_bom configured' };
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: config.sheet_id_bom,
+    range: `'${config.sheet_name_bom || 'BASE BRUTA'}'`,
+    valueRenderOption: 'UNFORMATTED_VALUE',
+  });
+
+  const rows = res.data.values || [];
+  if (rows.length < 2) return { updated: 0, skipped: 'Not enough rows in BOM' };
+
+  // Row 0 = headers: GRUPO_PRODUCTO, CODIGO_PRINCIPAL, NIVEL_JERARQUIA, CATEGORIA_NOMBRE, CATEGORIA, CODIGO, DETALLE, INSUMO_PRINCIPAL_ORIGEN, CANTIDAD_FORMULA, TIPO_INSUMO, STOCK_FISICO, ...
+  const headers = (rows[0] || []).map(h => String(h || '').toUpperCase().trim());
+  const col = (name) => headers.findIndex(h => h.includes(name));
+
+  const iCodPrincipal = col('CODIGO_PRINCIPAL');
+  const iNivel = col('NIVEL_JERARQUIA');
+  const iCategoria = col('CATEGORIA_NOMBRE');
+  const iCodigo = headers.indexOf('CODIGO');
+  const iDetalle = headers.indexOf('DETALLE');
+  const iCantFormula = col('CANTIDAD_FORMULA');
+  const iTipoInsumo = col('TIPO_INSUMO');
+  const iStockFisico = col('STOCK_FISICO');
+  const iDisponible = headers.indexOf('DISPONIBLE');
+  const iGrupo = col('GRUPO_PRODUCTO');
+
+  const bomItems = [];
+  const insumoStock = {};
+
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const codPrincipal = String(row[iCodPrincipal] || '').trim();
+    const nivel = parseNum(row[iNivel]);
+    const categoria = String(row[iCategoria] || '').trim();
+    const codigo = String(row[iCodigo] || '').trim();
+    const detalle = String(row[iDetalle] || '').trim();
+    const cantFormula = iCantFormula >= 0 ? parseNum(row[iCantFormula]) : 1;
+    const tipoInsumo = iTipoInsumo >= 0 ? String(row[iTipoInsumo] || '').trim() : '';
+    const stockFisico = iStockFisico >= 0 ? parseNum(row[iStockFisico]) : 0;
+    const disponible = iDisponible >= 0 ? parseNum(row[iDisponible]) : stockFisico;
+    const nombrePrincipal = iGrupo >= 0 ? String(row[iGrupo] || '').trim() : '';
+
+    if (!codPrincipal || !codigo) continue;
+
+    // Detect envase: DETALLE contains ENVASE or FRASCO (but not CAJA, not ESENCIA, not TAPA, not COLLAR, not VALVULA)
+    const detUp = detalle.toUpperCase();
+    const esEnvase = (detUp.includes('ENVASE') || detUp.includes('FRASCO')) &&
+                     !detUp.includes('CAJA') && !detUp.includes('ESENCIA');
+
+    if (nivel > 0) {
+      bomItems.push({
+        codigo_principal: codPrincipal,
+        nombre_principal: nombrePrincipal,
+        nivel: nivel,
+        categoria: categoria,
+        codigo_insumo: codigo,
+        detalle_insumo: detalle.substring(0, 200),
+        cantidad_formula: cantFormula || 1,
+        tipo_insumo: tipoInsumo.substring(0, 100),
+        es_envase: esEnvase,
+        fecha_sync: new Date().toISOString(),
+      });
+
+      // Classify insumo type
+      let tipoGlobal = 'otro';
+      if (detUp.includes('ENVASE') || detUp.includes('FRASCO')) tipoGlobal = 'frasco';
+      else if (detUp.includes('CAJA') || detUp.includes('ESTUCHE') || detUp.includes('INTERIOR')) tipoGlobal = 'estuche';
+      else if (detUp.includes('ESENCIA') || detUp.includes('FRAGANCIA') || detUp.includes('PERFUME')) tipoGlobal = 'esencia';
+      else if (detUp.includes('TAPA')) tipoGlobal = 'tapa';
+      else if (detUp.includes('COLLAR')) tipoGlobal = 'collar';
+      else if (detUp.includes('VALVULA') || detUp.includes('PUMP') || detUp.includes('BOMBA')) tipoGlobal = 'valvula';
+
+      // Lead time by type (days)
+      let leadTimeDias = 90; // default
+      if (tipoGlobal === 'frasco') leadTimeDias = 135; // 4.5 meses
+      else if (tipoGlobal === 'estuche') leadTimeDias = 120; // 4 meses (China default)
+      else if (tipoGlobal === 'esencia') leadTimeDias = 45; // 30-60 días
+
+      if (!insumoStock[codigo]) {
+        insumoStock[codigo] = {
+          codigo: codigo,
+          detalle: detalle.substring(0, 200),
+          categoria: categoria,
+          stock_fisico: stockFisico,
+          stock_disponible: disponible,
+          tipo_insumo_global: tipoGlobal,
+          lead_time_dias: leadTimeDias,
+          fecha_sync: new Date().toISOString(),
+        };
+      }
+    }
+  }
+
+  // Upsert BOM in chunks
+  let bomCount = 0;
+  for (let i = 0; i < bomItems.length; i += 500) {
+    const chunk = bomItems.slice(i, i + 500);
+    const { error } = await supabase.from('bom_productos').upsert(chunk, { onConflict: 'codigo_principal,codigo_insumo' });
+    if (!error) bomCount += chunk.length;
+    else console.error('BOM upsert error:', error.message);
+  }
+
+  // Upsert stock_insumos
+  const insumoArr = Object.values(insumoStock);
+  let insumoCount = 0;
+  for (let i = 0; i < insumoArr.length; i += 500) {
+    const chunk = insumoArr.slice(i, i + 500);
+    const { error } = await supabase.from('stock_insumos').upsert(chunk, { onConflict: 'codigo' });
+    if (!error) insumoCount += chunk.length;
+    else console.error('Insumos upsert error:', error.message);
+  }
+
+  return { bom_rows: bomCount, insumos: insumoCount };
+}
+
+// ─── SYNC 5: Producciones planificadas (UNIFICADO) ───
+async function syncProducciones(sheets, config, supabase) {
+  if (!config.sheet_id_producciones) return { updated: 0, skipped: 'No sheet_id_producciones configured' };
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: config.sheet_id_producciones,
+    range: `'${config.sheet_name_producciones || 'UNIFICADO'}'`,
+    valueRenderOption: 'UNFORMATTED_VALUE',
+  });
+
+  const rows = res.data.values || [];
+  if (rows.length < 2) return { updated: 0, skipped: 'Not enough rows in Producciones' };
+
+  // Row 0 = headers: CODIGO, PROVEEDOR, MARCA, DESCRIPCION, (blank), ABRIL, Junio 26, Julio 26, ...
+  const headers = rows[0] || [];
+
+  // Parse month columns (col 4+)
+  const monthCols = [];
+  const monthNames = {
+    'ENERO': 0, 'FEBRERO': 1, 'MARZO': 2, 'ABRIL': 3, 'MAYO': 4, 'JUNIO': 5,
+    'JULIO': 6, 'AGOSTO': 7, 'SEPTIEMBRE': 8, 'OCTUBRE': 9, 'NOVIEMBRE': 10, 'DICIEMBRE': 11
+  };
+
+  for (let c = 4; c < headers.length; c++) {
+    const h = String(headers[c] || '').trim().toUpperCase();
+    if (!h || h === 'COSTO') continue;
+
+    // Try to parse month + year from header like "Junio 26" or "ABRIL"
+    for (const [mName, mIdx] of Object.entries(monthNames)) {
+      if (h.includes(mName)) {
+        // Extract year: look for 2-digit or 4-digit year
+        let year = new Date().getFullYear();
+        const yearMatch = h.match(/(\d{2,4})/);
+        if (yearMatch) {
+          const y = parseInt(yearMatch[1]);
+          year = y < 100 ? 2000 + y : y;
+        }
+        monthCols.push({ col: c, date: new Date(year, mIdx, 1) });
+        break;
+      }
+    }
+  }
+
+  const producciones = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const codigo = String(row[0] || '').trim();
+    if (!codigo || isNaN(Number(codigo))) continue;
+
+    const proveedor = String(row[1] || '').trim();
+    const marca = String(row[2] || '').trim();
+    const descripcion = String(row[3] || '').trim().substring(0, 200);
+
+    for (const mc of monthCols) {
+      const qty = parseNum(row[mc.col]);
+      if (qty <= 0) continue;
+
+      producciones.push({
+        codigo: codigo,
+        marca: marca,
+        descripcion: descripcion,
+        proveedor: proveedor,
+        mes: mc.date.toISOString().substring(0, 10),
+        cantidad: qty,
+        fecha_sync: new Date().toISOString(),
+      });
+    }
+  }
+
+  if (producciones.length === 0) return { updated: 0, skipped: 'No production data found' };
+
+  // Clear old and upsert
+  let count = 0;
+  for (let i = 0; i < producciones.length; i += 500) {
+    const chunk = producciones.slice(i, i + 500);
+    const { error } = await supabase.from('producciones_planificadas').upsert(chunk, { onConflict: 'codigo,mes' });
+    if (!error) count += chunk.length;
+    else console.error('Producciones upsert error:', error.message);
+  }
+
+  return { updated: count, months_parsed: monthCols.length };
+}
+
 // ─── HANDLER ───
 export default async function handler(req, res) {
   let authorized = false;
@@ -350,10 +550,21 @@ export default async function handler(req, res) {
 
     await supabase.rpc('recalculate_cobertura');
 
-    const totalUpdated = (stockSistemaRes.updated || 0) + (stockSistemaRes.inserted || 0) + (stockRes.updated || 0) + (forecastRes.updated || 0);
+    // Step 3: Sync BOM + Producciones in parallel
+    const [bomResult, prodResult] = await Promise.allSettled([
+      syncBOM(sheets, config, supabase),
+      syncProducciones(sheets, config, supabase),
+    ]);
+
+    const bomRes = bomResult.status === 'fulfilled' ? bomResult.value : { error: bomResult.reason?.message };
+    const prodRes = prodResult.status === 'fulfilled' ? prodResult.value : { error: prodResult.reason?.message };
+
+    const allErrors = [stockSistemaRes.error, stockRes.error, forecastRes.error, bomRes.error, prodRes.error].filter(Boolean);
+    const totalUpdated = (stockSistemaRes.updated || 0) + (stockRes.updated || 0) + (forecastRes.updated || 0);
+
     await supabase.from('stock_sync_log').insert({
       productos_actualizados: totalUpdated,
-      errores: [stockSistemaRes.error, stockRes.error, forecastRes.error].filter(Boolean).join('; ') || null,
+      errores: allErrors.join('; ') || null,
     });
 
     await supabase.from('config_sheets').update({ last_sync: new Date().toISOString() }).eq('id', 1);
@@ -363,6 +574,8 @@ export default async function handler(req, res) {
       stock_sistema: stockSistemaRes,
       stocks: stockRes,
       forecast: forecastRes,
+      bom: bomRes,
+      producciones: prodRes,
     });
   } catch (err) {
     console.error('Sync sheets error:', err);
