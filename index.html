@@ -1598,20 +1598,34 @@ const COB_PIPE = 120; // PT + insumos
 async function renderMRPPage(c) {
   c.innerHTML = '<div style="text-align:center;padding:40px;color:var(--txt2);">Calculando plan de abastecimiento...</div>';
 
+  // Helper: fetch ALL rows from a table, paginating in chunks of 1000
+  async function fetchAll(table, select, filters) {
+    const PAGE = 1000;
+    let all = [];
+    let from = 0;
+    while (true) {
+      let q = sb.from(table).select(select).range(from, from + PAGE - 1);
+      if (filters) q = filters(q);
+      const { data, error } = await q;
+      if (error) { console.error(`fetchAll ${table} error:`, error); break; }
+      if (!data || data.length === 0) break;
+      all = all.concat(data);
+      if (data.length < PAGE) break; // last page
+      from += PAGE;
+    }
+    return all;
+  }
+
   try {
-    const [cmRes, spRes, prRes, bomRes, insRes] = await Promise.all([
+    const [cmRes, stockProds, prodPlan, bomRows, insumos] = await Promise.all([
       sb.from('config_marcas').select('*'),
-      sb.from('stock_productos').select('codigo, nombre, marca, segmento, polo, stock_actual, venta_mensual_avg, forecast_proximo_mes').range(0, 9999),
-      sb.from('producciones_planificadas').select('codigo, mes, cantidad').gte('mes', new Date().toISOString().substring(0,7)+'-01').range(0, 9999),
-      sb.from('bom_productos').select('codigo_principal, nombre_principal, codigo_insumo, detalle_insumo, cantidad_formula, es_envase, nivel, categoria').range(0, 9999),
-      sb.from('stock_insumos').select('codigo, detalle, stock_fisico, tipo_insumo_global, lead_time_dias').range(0, 9999),
+      fetchAll('stock_productos', 'codigo, nombre, marca, segmento, polo, stock_actual, venta_mensual_avg, forecast_proximo_mes'),
+      fetchAll('producciones_planificadas', 'codigo, mes, cantidad', q => q.gte('mes', new Date().toISOString().substring(0,7)+'-01')),
+      fetchAll('bom_productos', 'codigo_principal, nombre_principal, codigo_insumo, detalle_insumo, cantidad_formula, es_envase, nivel, categoria'),
+      fetchAll('stock_insumos', 'codigo, detalle, stock_fisico, tipo_insumo_global, lead_time_dias'),
     ]);
 
     const configMarcas = cmRes.data || [];
-    const stockProds = spRes.data || [];
-    const prodPlan = prRes.data || [];
-    const bomRows = bomRes.data || [];
-    const insumos = insRes.data || [];
 
     // ══════════════════════════════════════════
     // DEBUG: dump raw data to console for diagnosis
