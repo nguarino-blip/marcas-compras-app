@@ -1590,13 +1590,13 @@ async function renderMRPPage(c) {
   c.innerHTML = '<div style="text-align:center;padding:40px;color:var(--txt2);">Cargando datos MRP...</div>';
 
   try {
-    // Fetch ALL data needed for MRP in parallel
+    // Fetch ALL data needed for MRP in parallel (use range 0-9999 to avoid 1000 row default limit)
     const [cmRes, allProdRes, prodnRes, bomRes, insRes] = await Promise.all([
       sb.from('config_marcas').select('*').order('marca'),
-      sb.from('stock_productos').select('codigo, nombre, marca, stock_actual, venta_mensual_avg, forecast_proximo_mes, cobertura_meses').neq('marca', 'Sin asignar'),
-      sb.from('producciones_planificadas').select('codigo, mes, cantidad').gte('mes', new Date().toISOString().substring(0,7)+'-01'),
-      sb.from('bom_productos').select('codigo_principal, nombre_principal, codigo_insumo, detalle_insumo, cantidad_formula, es_envase, nivel'),
-      sb.from('stock_insumos').select('codigo, detalle, stock_fisico, tipo_insumo_global, lead_time_dias'),
+      sb.from('stock_productos').select('codigo, nombre, marca, stock_actual, venta_mensual_avg, forecast_proximo_mes, cobertura_meses').neq('marca', 'Sin asignar').range(0, 9999),
+      sb.from('producciones_planificadas').select('codigo, mes, cantidad').gte('mes', new Date().toISOString().substring(0,7)+'-01').range(0, 9999),
+      sb.from('bom_productos').select('codigo_principal, nombre_principal, codigo_insumo, detalle_insumo, cantidad_formula, es_envase, nivel').range(0, 9999),
+      sb.from('stock_insumos').select('codigo, detalle, stock_fisico, tipo_insumo_global, lead_time_dias').range(0, 9999),
     ]);
 
     const configMarcas = cmRes.data || [];
@@ -1604,6 +1604,14 @@ async function renderMRPPage(c) {
     const prodData = prodnRes.data || [];
     const bomData = bomRes.data || [];
     const insumosData = insRes.data || [];
+
+    // DEBUG: log data counts to console for diagnosis
+    console.log('[MRP Debug] configMarcas:', configMarcas.length, configMarcas.slice(0,3));
+    console.log('[MRP Debug] allProducts:', allProducts.length, 'sample:', allProducts.slice(0,2));
+    console.log('[MRP Debug] bomData:', bomData.length, 'sample:', bomData.slice(0,2));
+    console.log('[MRP Debug] insumosData:', insumosData.length);
+    console.log('[MRP Debug] prodData:', prodData.length);
+    console.log('[MRP Debug] Errors:', cmRes.error, allProdRes.error, prodnRes.error, bomRes.error, insRes.error);
 
     // === LOOKUPS ===
     const prodLookup = {};
@@ -1616,6 +1624,12 @@ async function renderMRPPage(c) {
     const marcasCompra = new Set(configMarcas.filter(cm => cm.tipo_abastecimiento === 'compra').map(cm => cm.marca));
     const marcaLT = {};
     configMarcas.forEach(cm => { marcaLT[cm.marca] = cm.lead_time_meses || 3; });
+
+    console.log('[MRP Debug] marcasFab:', [...marcasFab]);
+    console.log('[MRP Debug] marcasCompra:', [...marcasCompra]);
+    console.log('[MRP Debug] Product marcas in stock:', [...new Set(allProducts.map(p => p.marca))].sort());
+    console.log('[MRP Debug] Products with sales:', allProducts.filter(p => p.venta_mensual_avg > 0 || p.forecast_proximo_mes > 0).length);
+    console.log('[MRP Debug] BOM nivel values:', [...new Set(bomData.map(b => b.nivel))].sort());
 
     // BOM by principal: { codigo_principal: [{ codigo_insumo, cantidad_formula, es_envase, detalle }] }
     const bomByPT = {};
@@ -1632,8 +1646,9 @@ async function renderMRPPage(c) {
     });
 
     // === FABRICACIÓN: calcular producibles por PT ===
+    // Show ALL fabrication products (even without sales, to see full picture)
     const fabProducts = allProducts
-      .filter(p => marcasFab.has(p.marca) && (p.venta_mensual_avg > 0 || p.forecast_proximo_mes > 0))
+      .filter(p => marcasFab.has(p.marca))
       .map(p => {
         const vtaMes = p.forecast_proximo_mes || p.venta_mensual_avg || 0;
         const prodPlanif = prodLookup[p.codigo] || 0;
@@ -1655,7 +1670,7 @@ async function renderMRPPage(c) {
 
         const cobPT_dias = vtaMes > 0 ? Math.round(p.stock_actual / vtaMes * 30) : 999;
         const cobPTProd_dias = vtaMes > 0 ? Math.round((p.stock_actual + prodPlanif + (producibles || 0)) / vtaMes * 30) : 999;
-        const gapProd = Math.max(0, Math.round(vtaMes * 3 - p.stock_actual - prodPlanif));
+        const gapProd = vtaMes > 0 ? Math.max(0, Math.round(vtaMes * 3 - p.stock_actual - prodPlanif)) : 0;
 
         return {
           codigo: p.codigo, nombre: p.nombre, marca: p.marca,
@@ -1665,7 +1680,6 @@ async function renderMRPPage(c) {
           gap: gapProd
         };
       })
-      .filter(p => p.cob_pt_dias < 90 || p.gap > 0) // mostrar si cobertura < 90d o hay gap
       .sort((a, b) => a.cob_pt_dias - b.cob_pt_dias);
 
     // === INSUMOS: demanda total considerando TODOS los PTs que lo usan ===
@@ -1726,7 +1740,7 @@ async function renderMRPPage(c) {
       .sort((a, b) => a.cobertura_dias - b.cobertura_dias);
 
     // === COUNTS ===
-    const totalPTconBOM = new Set(bomData.filter(b => b.nivel === 0).map(b => b.codigo_principal)).size;
+    const totalPTconBOM = new Set(bomData.map(b => b.codigo_principal)).size;
     const totalInsumos = insumosData.length;
     const envasesSinStock = insumosData.filter(i => i.stock_fisico <= 0 && (i.tipo_insumo_global === 'frasco' || i.tipo_insumo_global === 'estuche')).length;
     const fechaSync = insumosData.length > 0 ? 'OK' : 'Sin datos';
@@ -1755,7 +1769,7 @@ async function renderMRPPage(c) {
         <div class="kpi"><div class="num">${totalPTconBOM}</div><div class="label">PT con BOM</div></div>
         <div class="kpi"><div class="num">${totalInsumos}</div><div class="label">Insumos</div></div>
         <div class="kpi"><div class="num" style="color:var(--red)">${envasesSinStock}</div><div class="label">Envases sin stock</div></div>
-        <div class="kpi"><div class="num" style="color:var(--orange)">${fabProducts.length}</div><div class="label">Fab. con gap</div></div>
+        <div class="kpi"><div class="num" style="color:var(--orange)">${fabProducts.length}</div><div class="label">Prod. Fabricación</div></div>
         <div class="kpi"><div class="num" style="color:var(--violet)">${compraGap.length}</div><div class="label">Compra con gap</div></div>
       </div>
 
@@ -1763,6 +1777,24 @@ async function renderMRPPage(c) {
         📋 <strong>Coberturas mínimas:</strong> PT fabricación: 60 días | Insumos: 75 días | PT lanzamiento: 90 días | PT compra exterior: 60 días.
         <strong>Insumos compartidos</strong> se marcan con 🔗 y el cálculo suma la demanda de todos los PT que los usan.
       </p>
+
+      <!-- DEBUG: Panel de diagnóstico (temporal) -->
+      <details style="margin-bottom:12px;background:var(--bg3);padding:8px 12px;border-radius:6px;border:1px solid var(--border);">
+        <summary style="cursor:pointer;color:var(--gold);font-size:12px;">🔍 Diagnóstico de datos (click para expandir)</summary>
+        <div style="font-size:11px;color:var(--txt2);margin-top:8px;font-family:monospace;line-height:1.6;">
+          <div>📊 config_marcas: ${configMarcas.length} registros | Fab: [${[...marcasFab].join(', ')}] | Compra: [${[...marcasCompra].join(', ')}]</div>
+          <div>📦 stock_productos: ${allProducts.length} registros | Marcas: [${[...new Set(allProducts.map(p=>p.marca))].sort().join(', ')}]</div>
+          <div>🔧 bom_productos: ${bomData.length} registros | Niveles: [${[...new Set(bomData.map(b=>b.nivel))].sort().join(', ')}] | PTs con BOM: ${Object.keys(bomByPT).length}</div>
+          <div>🧴 stock_insumos: ${insumosData.length} registros</div>
+          <div>📅 producciones: ${prodData.length} registros</div>
+          <div>🏭 Productos fab con marca match: ${allProducts.filter(p => marcasFab.has(p.marca)).length}</div>
+          <div>📈 Productos fab con ventas > 0: ${allProducts.filter(p => marcasFab.has(p.marca) && (p.venta_mensual_avg > 0 || p.forecast_proximo_mes > 0)).length}</div>
+          <div>🛍️ Productos compra con marca match: ${allProducts.filter(p => marcasCompra.has(p.marca)).length}</div>
+          ${allProdRes.error ? '<div style="color:var(--red);">❌ Error stock_productos: '+allProdRes.error.message+'</div>' : ''}
+          ${bomRes.error ? '<div style="color:var(--red);">❌ Error bom_productos: '+bomRes.error.message+'</div>' : ''}
+          ${cmRes.error ? '<div style="color:var(--red);">❌ Error config_marcas: '+cmRes.error.message+'</div>' : ''}
+        </div>
+      </details>
 
       <!-- Sub-tabs -->
       <div style="display:flex;gap:8px;margin-bottom:16px;">
