@@ -1671,7 +1671,8 @@ async function renderMRPPage(c) {
         <h2 style="color:var(--gold);font-size:20px;">🏭 MRP — Planificación de Compras</h2>
         <div style="display:flex;gap:8px;align-items:center;">
           <span style="font-size:11px;color:var(--txt2);">Sync: ${resumen.fecha_sync ? new Date(resumen.fecha_sync).toLocaleString('es-AR') : 'Nunca'}</span>
-          <button class="btn-outline btn-sm" onclick="renderMRPPage(document.getElementById('tabContent'))">🔄 Recalcular</button>
+          <button class="btn-outline btn-sm" onclick="triggerSync().then(() => renderMRPPage(document.getElementById('tabContent')))">🔄 Sincronizar</button>
+          <button class="btn-outline btn-sm" onclick="renderMRPPage(document.getElementById('tabContent'))">📊 Recalcular</button>
         </div>
       </div>
 
