@@ -1601,7 +1601,7 @@ async function renderMRPPage(c) {
   try {
     const [cmRes, spRes, prRes, bomRes, insRes] = await Promise.all([
       sb.from('config_marcas').select('*'),
-      sb.from('stock_productos').select('codigo, nombre, marca, stock_actual, venta_mensual_avg, forecast_proximo_mes').range(0, 9999),
+      sb.from('stock_productos').select('codigo, nombre, marca, segmento, polo, stock_actual, venta_mensual_avg, forecast_proximo_mes').range(0, 9999),
       sb.from('producciones_planificadas').select('codigo, mes, cantidad').gte('mes', new Date().toISOString().substring(0,7)+'-01').range(0, 9999),
       sb.from('bom_productos').select('codigo_principal, nombre_principal, codigo_insumo, detalle_insumo, cantidad_formula, es_envase, nivel').range(0, 9999),
       sb.from('stock_insumos').select('codigo, detalle, stock_fisico, tipo_insumo_global, lead_time_dias').range(0, 9999),
@@ -1635,12 +1635,24 @@ async function renderMRPPage(c) {
     });
 
     // Stock lookup por código y por nombre
+    // PRIORIDAD: registros del forecast (tienen segmento/polo cargado → marca correcta)
     const spByCodigo = {};
     const spByNombre = {};
+    // First pass: all records
     stockProds.forEach(p => {
-      spByCodigo[p.codigo] = p;
+      const existing = spByCodigo[p.codigo];
+      // Prefer forecast records (have polo/segmento) over syncStocks records (synthetic codes, wrong marca)
+      const isForecast = !!(p.polo || p.segmento || p.forecast_proximo_mes);
+      const existIsForecast = existing ? !!(existing.polo || existing.segmento || existing.forecast_proximo_mes) : false;
+      if (!existing || (isForecast && !existIsForecast)) {
+        spByCodigo[p.codigo] = p;
+      }
       const nKey = (p.nombre || '').toUpperCase().replace(/\s+/g, ' ').trim();
-      if (nKey && !spByNombre[nKey]) spByNombre[nKey] = p;
+      if (nKey) {
+        const existN = spByNombre[nKey];
+        const existNIsForecast = existN ? !!(existN.polo || existN.segmento || existN.forecast_proximo_mes) : false;
+        if (!existN || (isForecast && !existNIsForecast)) spByNombre[nKey] = p;
+      }
     });
 
     // ══════════════════════════════════════════
@@ -1699,14 +1711,20 @@ async function renderMRPPage(c) {
         componentes.forEach(comp => {
           const ins = insIdx[comp.codigo_insumo];
           const stk = ins ? (ins.stock_fisico || 0) : 0;
-          const tipo = ins ? (ins.tipo_insumo_global || '') : '';
           const qty = comp.cantidad_formula > 0 ? comp.cantidad_formula : 1;
           const rinde = Math.floor(stk / qty);
 
-          // Clasificar stock por tipo de insumo
-          if (tipo === 'frasco' && (insBot === null || stk < insBot)) insBot = stk;
-          else if (tipo === 'estuche' && (insEst === null || stk < insEst)) insEst = stk;
-          else if (tipo === 'esencia' && (insEse === null || stk < insEse)) insEse = stk;
+          // Clasificar tipo desde detalle del BOM (siempre presente) + fallback a stock_insumos
+          const det = (comp.detalle_insumo || '').toUpperCase();
+          const tipoIns = ins ? (ins.tipo_insumo_global || '') : '';
+          const esFrasco = tipoIns === 'frasco' || det.includes('FRASCO') || det.includes('ENVASE') || det.includes('BOTELLA');
+          const esEstuche = tipoIns === 'estuche' || det.includes('ESTUCHE') || det.includes('CAJA') || det.includes('INTERIOR') || det.includes('DISPLAY');
+          const esEsencia = tipoIns === 'esencia' || det.includes('ESENCIA') || det.includes('FRAGANCIA') || det.includes('PERFUME') || det.includes('ACEITE');
+
+          // Guardar stock del tipo (mínimo si hay varios del mismo tipo)
+          if (esFrasco) insBot = insBot === null ? stk : Math.min(insBot, stk);
+          if (esEstuche) insEst = insEst === null ? stk : Math.min(insEst, stk);
+          if (esEsencia) insEse = insEse === null ? stk : Math.min(insEse, stk);
 
           if (rinde < producibles) {
             producibles = rinde;
@@ -1750,11 +1768,23 @@ async function renderMRPPage(c) {
       };
     }
 
+    // Build a code→forecast lookup for marca correction
+    // Forecast records have polo/segmento → their marca is the correct one from the Marca column
+    const forecastByCodigo = {};
+    stockProds.forEach(p => {
+      if (p.polo || p.segmento || p.forecast_proximo_mes) {
+        if (!forecastByCodigo[p.codigo] || (p.polo || p.segmento)) forecastByCodigo[p.codigo] = p;
+      }
+    });
+
     // Fuente 1: Productos con BOM
     for (const bp of Object.values(bomByPT)) {
       const sp = matchSP(bp.codigo, bp.nombre);
-      const marca = sp ? (sp.marca || '') : '';
-      fabMap[bp.codigo] = buildFabItem(bp.codigo, bp.nombre || (sp ? sp.nombre : ''), marca, sp, bp.componentes);
+      // Marca: prioridad 1) forecast record por código exacto, 2) stock_productos match, 3) vacío
+      const fcst = forecastByCodigo[bp.codigo];
+      const marca = fcst ? fcst.marca : (sp ? (sp.marca || '') : '');
+      const nombre = fcst ? (fcst.nombre || bp.nombre) : (bp.nombre || (sp ? sp.nombre : ''));
+      fabMap[bp.codigo] = buildFabItem(bp.codigo, nombre, marca, sp || fcst, bp.componentes);
     }
 
     // Fuente 2: Productos de stock_productos cuya marca es de fabricación (y no están ya en fabMap)
@@ -1941,7 +1971,7 @@ async function renderMRPPage(c) {
             <table style="width:100%;border-collapse:collapse;font-size:11px;" id="mrpTblFab">
               <thead>
                 <tr style="border-bottom:1px solid var(--border);background:var(--bg3);">
-                  <th rowspan="2" style="padding:4px 3px;text-align:left;width:22px;">#</th>
+                  <th rowspan="2" style="padding:4px 3px;text-align:left;">Código</th>
                   <th rowspan="2" style="padding:4px 3px;text-align:left;">Producto</th>
                   <th rowspan="2" style="padding:4px 3px;text-align:left;">Marca</th>
                   <th colspan="2" style="padding:4px 3px;text-align:center;border-bottom:1px solid var(--border);color:var(--gold);">Venta</th>
@@ -1967,8 +1997,8 @@ async function renderMRPPage(c) {
               </thead><tbody>
               ${fabTop.map((p, i) => `
                 <tr style="border-bottom:1px solid var(--border);${i<40?'':'opacity:0.85;'}${p.urg>=3?'background:rgba(255,50,50,0.08);':p.urg>=2?'background:rgba(255,165,0,0.05);':''}" data-marca="${p.marca}" data-urg="${p.urg}">
-                  <td style="padding:2px 3px;color:var(--txt2);font-size:9px;">${i+1}</td>
-                  <td style="padding:2px 3px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombre} [${p.codigo}]${!p.hasBOM?' (sin BOM)':''}">${(p.nombre||'').substring(0,22)}${!p.hasBOM?' <span style=color:var(--orange);font-size:8px;>∅</span>':''}</td>
+                  <td style="padding:2px 3px;font-family:monospace;font-size:9px;color:var(--txt2);" title="${p.codigo}">${p.codigo}</td>
+                  <td style="padding:2px 3px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombre}${!p.hasBOM?' (sin BOM)':''}">${(p.nombre||'').substring(0,22)}${!p.hasBOM?' <span style=color:var(--orange);font-size:8px;>∅</span>':''}</td>
                   <td style="padding:2px 3px;font-size:9px;">${p.marca||'?'}</td>
                   <td style="padding:2px 3px;text-align:right;font-weight:bold;">${p.vtaMes>0?Math.round(p.vtaMes).toLocaleString():'<span style=color:var(--txt2)>-</span>'}</td>
                   <td style="padding:2px 3px;text-align:right;color:var(--txt2);">${p.vta3m>0?Math.round(p.vta3m).toLocaleString():'-'}</td>
