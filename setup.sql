@@ -268,6 +268,7 @@ begin
     when 'icortina@cdimex.com.mx' then v_role:='marcas'; v_name:='Ignacio Cortina';
     when 'rderiso@cdimex.com.ar' then v_role:='marcas'; v_name:='Rosario del Riso';
     when 'glaffitte@cdimex.com.ar' then v_role:='marcas'; v_name:='Geraldine Laffitte';
+    when 'fcortassa@cdimex.com.ar' then v_role:='marcas'; v_name:='Franco Cortassa';
     else
       v_role := 'marcas'; -- default for unknown emails
   end case;
@@ -358,6 +359,626 @@ begin
       select count(*) from solicitudes
       where status = 'Completado'
         and updated_at >= current_date - interval '7 days'
+    )
+  ) into result;
+  return result;
+end;
+$$ language plpgsql security definer;
+
+-- =============================================
+-- USUARIO-MARCAS MAPPING TABLE
+-- =============================================
+create table public.usuario_marcas (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid references public.profiles(id) on delete cascade,
+  marca text not null,
+  created_at timestamptz default now(),
+  unique(user_id, marca)
+);
+
+alter table public.usuario_marcas enable row level security;
+create policy "usuario_marcas: read all" on public.usuario_marcas for select to authenticated using (true);
+create policy "usuario_marcas: admin insert" on public.usuario_marcas for insert to authenticated
+  with check (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+create policy "usuario_marcas: admin delete" on public.usuario_marcas for delete to authenticated
+  using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+create policy "usuario_marcas: admin update" on public.usuario_marcas for update to authenticated
+  using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+
+-- =============================================
+-- PLANTILLAS POR MARCA (proveedores habituales)
+-- =============================================
+create table public.plantillas_marca (
+  id uuid primary key default uuid_generate_v4(),
+  marca text not null,
+  proveedores_habituales text[] default '{}',
+  updated_at timestamptz default now(),
+  unique(marca)
+);
+
+alter table public.plantillas_marca enable row level security;
+create policy "plantillas_marca: read all" on public.plantillas_marca for select to authenticated using (true);
+create policy "plantillas_marca: admin insert" on public.plantillas_marca for insert to authenticated
+  with check (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+create policy "plantillas_marca: admin update" on public.plantillas_marca for update to authenticated
+  using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+create policy "plantillas_marca: admin delete" on public.plantillas_marca for delete to authenticated
+  using (exists (select 1 from public.profiles where id = auth.uid() and role = 'admin'));
+
+-- =============================================
+-- SEED: Initial usuario_marcas data (migrate from hardcoded map)
+-- =============================================
+create or replace function public.seed_usuario_marcas()
+returns void as $$
+declare
+  v_uid uuid;
+begin
+  -- Florencia Barrionuevo → Cher Fragancias
+  select id into v_uid from profiles where email = 'fbarrionuevo@cdimex.com.ar';
+  if v_uid is not null then insert into usuario_marcas(user_id, marca) values (v_uid, 'Cher Fragancias') on conflict do nothing; end if;
+
+  -- Agustina Mosquera → Cher Beauty
+  select id into v_uid from profiles where email = 'amosquera@cdimex.com.ar';
+  if v_uid is not null then insert into usuario_marcas(user_id, marca) values (v_uid, 'Cher Beauty') on conflict do nothing; end if;
+
+  -- Macarena Kovacs → Cher Fragancias, Cher Beauty
+  select id into v_uid from profiles where email = 'mkovacs@cdimex.com.ar';
+  if v_uid is not null then
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Cher Fragancias') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Cher Beauty') on conflict do nothing;
+  end if;
+
+  -- Camila Manoleay → Masivas
+  select id into v_uid from profiles where email = 'cmanoleay@cdimex.com.ar';
+  if v_uid is not null then
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Al Shams') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'L''Inedito') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Get the Look') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Oreiro Love') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Margarita') on conflict do nothing;
+  end if;
+
+  -- Nicole Mourelle → Masivas
+  select id into v_uid from profiles where email = 'nmourelle@cdimex.com.ar';
+  if v_uid is not null then
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Al Shams') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'L''Inedito') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Get the Look') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Oreiro Love') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Margarita') on conflict do nothing;
+  end if;
+
+  -- Rosario del Riso → Masivas (BM)
+  select id into v_uid from profiles where email = 'rderiso@cdimex.com.ar';
+  if v_uid is not null then
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Al Shams') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'L''Inedito') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Get the Look') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Oreiro Love') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Margarita') on conflict do nothing;
+  end if;
+
+  -- Valeria Solis → Bensimon, Tucci
+  select id into v_uid from profiles where email = 'vsolis@cdimex.com.ar';
+  if v_uid is not null then
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Bensimon') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Tucci') on conflict do nothing;
+  end if;
+
+  -- Carla Anriquez → Sarkany
+  select id into v_uid from profiles where email = 'canriquez@cdimex.com.ar';
+  if v_uid is not null then insert into usuario_marcas(user_id, marca) values (v_uid, 'Sarkany') on conflict do nothing; end if;
+
+  -- Ignacio Cortina → BM Bensimon/Sarkany/Tucci
+  select id into v_uid from profiles where email = 'icortina@cdimex.com.mx';
+  if v_uid is not null then
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Bensimon') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Sarkany') on conflict do nothing;
+    insert into usuario_marcas(user_id, marca) values (v_uid, 'Tucci') on conflict do nothing;
+  end if;
+
+  -- Geraldine Laffitte → K-beauty
+  select id into v_uid from profiles where email = 'glaffitte@cdimex.com.ar';
+  if v_uid is not null then insert into usuario_marcas(user_id, marca) values (v_uid, 'K-beauty') on conflict do nothing; end if;
+
+  -- Franco Cortassa → __ALL__ (Director General)
+  select id into v_uid from profiles where email = 'fcortassa@cdimex.com.ar';
+  if v_uid is not null then insert into usuario_marcas(user_id, marca) values (v_uid, '__ALL__') on conflict do nothing; end if;
+end;
+$$ language plpgsql security definer;
+
+-- Execute: SELECT seed_usuario_marcas();
+
+-- =============================================
+-- SMART ALERTS: stale solicitudes + overdue inspections
+-- =============================================
+create or replace function public.get_smart_alerts()
+returns json as $$
+declare
+  result json;
+begin
+  select json_build_object(
+    'sin_movimiento', (
+      select json_agg(row_to_json(t)) from (
+        select s.numero, s.nombre, s.marca, s.status,
+               (current_date - s.updated_at::date)::int as dias_sin_movimiento,
+               p.email as created_by_email
+        from solicitudes s
+        join profiles p on p.id = s.created_by
+        where s.status not in ('Completado','Rechazada','Eliminada')
+          and (current_date - s.updated_at::date) >= 5
+        order by s.updated_at asc
+      ) t
+    ),
+    'inspeccion_vencida', (
+      select json_agg(row_to_json(t)) from (
+        select s.numero, s.nombre, s.marca,
+               i.tipo, i.notas,
+               i.created_at::date as fecha_desaprobacion,
+               p.email as created_by_email
+        from inspecciones i
+        join solicitudes s on s.id = i.solicitud_id
+        join profiles p on p.id = s.created_by
+        where i.resultado = 'desaprobado'
+          and s.status = 'Inspección pre-embarque'
+          and i.notas like '%[PLAZO:%'
+        order by i.created_at asc
+      ) t
+    ),
+    'paso_excede_promedio', (
+      select json_agg(row_to_json(t)) from (
+        select s.numero, s.nombre, s.marca, rp.nombre as paso,
+               rp.fecha_objetivo,
+               (current_date - rp.fecha_objetivo)::int as dias_excedido,
+               p.email as created_by_email
+        from retroplan_pasos rp
+        join solicitudes s on s.id = rp.solicitud_id
+        join profiles p on p.id = s.created_by
+        where rp.completado = false
+          and rp.fecha_objetivo < current_date
+          and s.status not in ('Completado','Rechazada','Eliminada')
+        order by (current_date - rp.fecha_objetivo) desc
+        limit 20
+      ) t
+    )
+  ) into result;
+  return result;
+end;
+$$ language plpgsql security definer;
+
+-- =============================================
+-- METRICS: analytics dashboard data
+-- =============================================
+create or replace function public.get_metrics_data()
+returns json as $$
+declare
+  result json;
+begin
+  select json_build_object(
+    'tiempo_por_estado', (
+      select json_agg(row_to_json(t)) from (
+        select h1.evento as estado_desde,
+               avg(extract(epoch from (h2.created_at - h1.created_at))/86400)::numeric(10,1) as dias_promedio,
+               count(*) as cantidad
+        from historial h1
+        join historial h2 on h1.solicitud_id = h2.solicitud_id
+          and h2.created_at > h1.created_at
+          and h2.evento like 'Cambió estado a%'
+        where h1.evento like 'Cambió estado a%'
+        group by h1.evento
+        having count(*) >= 2
+        order by dias_promedio desc
+      ) t
+    ),
+    'por_marca', (
+      select json_agg(row_to_json(t)) from (
+        select s.marca, count(*) as total,
+               count(*) filter (where s.status = 'Completado') as completadas,
+               count(*) filter (where s.status not in ('Completado','Rechazada','Eliminada')) as activas
+        from solicitudes s
+        group by s.marca order by total desc
+      ) t
+    ),
+    'por_tipo', (
+      select json_agg(row_to_json(t)) from (
+        select s.tipo, count(*) as total,
+               count(*) filter (where s.status = 'Completado') as completadas,
+               count(*) filter (where s.status not in ('Completado','Rechazada','Eliminada')) as activas
+        from solicitudes s
+        group by s.tipo order by total desc
+      ) t
+    ),
+    'tendencia_mensual', (
+      select json_agg(row_to_json(t)) from (
+        select to_char(date_trunc('month', created_at), 'YYYY-MM') as mes,
+               count(*) as creadas,
+               count(*) filter (where status = 'Completado') as completadas
+        from solicitudes
+        where created_at >= current_date - interval '12 months'
+        group by date_trunc('month', created_at) order by mes
+      ) t
+    ),
+    'cuellos_botella', (
+      select json_agg(row_to_json(t)) from (
+        select rp.nombre as paso,
+               avg((current_date - rp.fecha_objetivo)::int)::numeric(10,1) as dias_promedio_retraso,
+               count(*) as cantidad_retrasados
+        from retroplan_pasos rp
+        join solicitudes s on s.id = rp.solicitud_id
+        where rp.completado = false and rp.fecha_objetivo < current_date
+          and s.status not in ('Completado','Rechazada','Eliminada')
+        group by rp.nombre having count(*) >= 1
+        order by dias_promedio_retraso desc
+      ) t
+    )
+  ) into result;
+  return result;
+end;
+$$ language plpgsql security definer;
+
+-- =============================================
+-- STOCK & PLANIFICACIÓN DE COMPRAS
+-- =============================================
+
+-- Config por marca: lead time, umbral de alerta
+create table if not exists config_marcas (
+  id uuid default gen_random_uuid() primary key,
+  marca text not null unique,
+  lead_time_meses numeric default 3,
+  umbral_alerta_meses numeric default 2,
+  tipo_abastecimiento text default 'fabricacion', -- fabricacion | compra
+  notas text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table config_marcas enable row level security;
+create policy "config_marcas_read" on config_marcas for select using (true);
+create policy "config_marcas_write" on config_marcas for all using (
+  exists(select 1 from profiles where id = auth.uid() and (role = 'admin' or (role = 'compras' and can_approve_solicitud = true)))
+);
+
+-- Stock de productos sincronizado desde Google Sheets
+create table if not exists stock_productos (
+  id uuid default gen_random_uuid() primary key,
+  codigo text not null,
+  nombre text not null,
+  marca text not null,
+  segmento text,
+  polo text,
+  stock_actual numeric default 0,
+  venta_mensual_avg numeric default 0,
+  forecast_proximo_mes numeric default 0,
+  cobertura_meses numeric default 0,
+  lead_time_meses numeric default null, -- null = usa default de marca
+  stock_minimo numeric default 0,
+  unidad text default 'unidades',
+  fecha_sync timestamptz default now(),
+  unique(codigo, marca)
+);
+
+alter table stock_productos enable row level security;
+create policy "stock_productos_read" on stock_productos for select using (true);
+create policy "stock_productos_write" on stock_productos for all using (
+  exists(select 1 from profiles where id = auth.uid() and (role = 'admin' or role = 'compras'))
+);
+
+-- Historial de sincronizaciones
+create table if not exists stock_sync_log (
+  id uuid default gen_random_uuid() primary key,
+  fecha timestamptz default now(),
+  productos_actualizados int default 0,
+  errores text,
+  fuente text default 'google_sheets'
+);
+
+-- Config global de Google Sheets (una sola fila)
+create table if not exists config_sheets (
+  id int primary key default 1 check (id = 1),
+  sheet_id_stocks text,
+  sheet_name_stocks text default 'Ventas stock cierre cobertura',
+  sheet_id_forecast text,
+  sheet_name_forecast text default 'Resumen Gral.',
+  sheet_id_stock_sistema text,
+  sheet_name_stock_sistema text default 'Stock Sistema',
+  sheet_name_descripcion text default 'Descripcion',
+  sheet_id_bom text,
+  sheet_name_bom text default 'Nueva base bruta',
+  sheet_id_producciones text,
+  sheet_name_producciones text default 'UNIFICADO',
+  service_account_email text,
+  last_sync timestamptz,
+  sync_enabled boolean default true
+);
+
+alter table config_sheets enable row level security;
+create policy "config_sheets_read" on config_sheets for select using (true);
+create policy "config_sheets_write" on config_sheets for all using (
+  exists(select 1 from profiles where id = auth.uid() and (role = 'admin' or (role = 'compras' and can_approve_solicitud = true)))
+);
+
+-- Seed config_marcas con las marcas existentes
+insert into config_marcas (marca, lead_time_meses, umbral_alerta_meses, tipo_abastecimiento) values
+  -- Fabricación propia (insumos: frascos 4.5m, estuches 4m, esencias 1-2m)
+  ('Bensimon', 4.5, 2, 'fabricacion'),
+  ('Sarkany', 4.5, 2, 'fabricacion'),
+  ('Tucci', 4.5, 2, 'fabricacion'),
+  ('Cher Fragancias', 4.5, 2, 'fabricacion'),
+  ('Cher Mix', 4.5, 2, 'fabricacion'),
+  ('Oreiro Love', 4.5, 2, 'fabricacion'),
+  ('Al Shams', 4.5, 2, 'fabricacion'),
+  ('L''Inedito', 4.5, 2, 'fabricacion'),
+  ('Margarita', 4.5, 2, 'fabricacion'),
+  ('Little Paris', 4.5, 2, 'fabricacion'),
+  ('Relazzi', 4.5, 2, 'fabricacion'),
+  -- Compra hecha - Árabes (6 meses)
+  ('Lattafa', 6, 2, 'compra'),
+  ('Al Wataniah', 6, 2, 'compra'),
+  ('Rasasi', 6, 2, 'compra'),
+  ('Armaf', 6, 2, 'compra'),
+  ('Afnan', 6, 2, 'compra'),
+  -- Compra hecha - Otros
+  ('Elizabeth Arden', 4, 2, 'compra'),
+  ('Alchemy', 4, 2, 'compra'),
+  ('Cher Beauty', 7, 2, 'compra'),
+  -- Otros
+  ('Fascino', 3, 2, 'fabricacion'),
+  ('Get the Look', 3, 2, 'compra'),
+  ('K-beauty', 3, 2, 'compra')
+on conflict (marca) do nothing;
+
+-- RPC: Obtener alertas de stock (items con riesgo de quiebre)
+create or replace function get_stock_alerts_data(p_umbral numeric default null)
+returns json as $$
+declare
+  result json;
+begin
+  select json_build_object(
+    'resumen', (
+      select json_build_object(
+        'total_productos', count(*),
+        'en_riesgo', count(*) filter (where sp.cobertura_meses <= coalesce(p_umbral, cm.umbral_alerta_meses, 2)),
+        'sin_stock', count(*) filter (where sp.stock_actual <= 0),
+        'cobertura_promedio', round(avg(sp.cobertura_meses)::numeric, 1)
+      )
+      from stock_productos sp
+      left join config_marcas cm on cm.marca = sp.marca
+    ),
+    'alertas_quiebre', (
+      select json_agg(row_to_json(t) order by t.cobertura_meses asc) from (
+        select sp.codigo, sp.nombre, sp.marca, sp.segmento,
+               sp.stock_actual, sp.venta_mensual_avg, sp.forecast_proximo_mes,
+               sp.cobertura_meses,
+               coalesce(sp.lead_time_meses, cm.lead_time_meses, 3) as lead_time,
+               coalesce(p_umbral, cm.umbral_alerta_meses, 2) as umbral,
+               case
+                 when sp.stock_actual <= 0 then 'SIN STOCK'
+                 when sp.cobertura_meses <= 1 then 'CRITICO'
+                 when sp.cobertura_meses <= coalesce(p_umbral, cm.umbral_alerta_meses, 2) then 'ALERTA'
+                 when sp.cobertura_meses <= coalesce(sp.lead_time_meses, cm.lead_time_meses, 3) then 'ATENCIÓN'
+                 else 'OK'
+               end as nivel_riesgo,
+               round(greatest(0, coalesce(sp.lead_time_meses, cm.lead_time_meses, 3) * coalesce(nullif(sp.forecast_proximo_mes, 0), sp.venta_mensual_avg) - sp.stock_actual)::numeric, 0) as cantidad_sugerida_compra
+        from stock_productos sp
+        left join config_marcas cm on cm.marca = sp.marca
+        where sp.cobertura_meses <= coalesce(sp.lead_time_meses, cm.lead_time_meses, 3)
+           or sp.stock_actual <= 0
+      ) t
+    ),
+    'por_marca', (
+      select json_agg(row_to_json(t)) from (
+        select sp.marca,
+               count(*) as total_productos,
+               count(*) filter (where sp.cobertura_meses <= coalesce(cm.umbral_alerta_meses, 2)) as en_riesgo,
+               count(*) filter (where sp.stock_actual <= 0) as sin_stock,
+               round(avg(sp.cobertura_meses)::numeric, 1) as cobertura_promedio,
+               coalesce(cm.lead_time_meses, 3) as lead_time_default
+        from stock_productos sp
+        left join config_marcas cm on cm.marca = sp.marca
+        group by sp.marca, cm.lead_time_meses
+        order by en_riesgo desc
+      ) t
+    ),
+    'fecha_sync', (select max(fecha_sync) from stock_productos)
+  ) into result;
+  return result;
+end;
+$$ language plpgsql security definer;
+
+-- RPC: Recalcular cobertura después de sync
+create or replace function recalculate_cobertura()
+returns void as $$
+begin
+  update stock_productos
+  set cobertura_meses = case
+    when coalesce(nullif(forecast_proximo_mes, 0), venta_mensual_avg) > 0
+    then round((stock_actual / coalesce(nullif(forecast_proximo_mes, 0), venta_mensual_avg))::numeric, 1)
+    else 99
+  end
+  where venta_mensual_avg > 0 or forecast_proximo_mes > 0;
+end;
+$$ language plpgsql security definer;
+
+-- =============================================
+-- MRP: INSUMOS, BOM & PLANIFICACIÓN DE COMPRAS
+-- =============================================
+
+-- BOM: Bill of Materials (producto → insumos)
+create table if not exists bom_productos (
+  id uuid default gen_random_uuid() primary key,
+  codigo_principal text not null,       -- código producto terminado
+  nombre_principal text,
+  nivel int not null default 0,         -- 0=principal, 1=insumo, 2=intermedio
+  categoria text,                       -- PRINCIPAL, INSUMO, INTERMEDIO
+  codigo_insumo text not null,          -- código del insumo/componente
+  detalle_insumo text,
+  cantidad_formula numeric default 1,   -- cuántas unidades de insumo por PT
+  tipo_insumo text,                     -- UNICO, COMPARTIDO (N) - PRIO X, ES EL PRINCIPAL
+  es_envase boolean default false,      -- true si el detalle contiene ENVASE/FRASCO
+  fecha_sync timestamptz default now(),
+  unique(codigo_principal, codigo_insumo)
+);
+
+alter table bom_productos enable row level security;
+create policy "bom_read" on bom_productos for select using (true);
+create policy "bom_write" on bom_productos for all using (
+  exists(select 1 from profiles where id = auth.uid() and (role = 'admin' or role = 'compras'))
+);
+
+-- Stock de insumos
+create table if not exists stock_insumos (
+  id uuid default gen_random_uuid() primary key,
+  codigo text not null unique,
+  detalle text,
+  categoria text,                       -- INSUMO, INTERMEDIO
+  stock_fisico numeric default 0,
+  stock_disponible numeric default 0,
+  tipo_insumo_global text,              -- frasco, estuche, esencia, tapa, collar, valvula, otro
+  lead_time_dias numeric default 135,   -- default 4.5 meses = 135 días
+  fecha_sync timestamptz default now()
+);
+
+alter table stock_insumos enable row level security;
+create policy "stock_insumos_read" on stock_insumos for select using (true);
+create policy "stock_insumos_write" on stock_insumos for all using (
+  exists(select 1 from profiles where id = auth.uid() and (role = 'admin' or role = 'compras'))
+);
+
+-- Producciones planificadas (estimadas, no confirmadas)
+create table if not exists producciones_planificadas (
+  id uuid default gen_random_uuid() primary key,
+  codigo text not null,
+  marca text,
+  descripcion text,
+  proveedor text,
+  mes date not null,                    -- primer día del mes de producción
+  cantidad numeric default 0,
+  fecha_sync timestamptz default now(),
+  unique(codigo, mes)
+);
+
+alter table producciones_planificadas enable row level security;
+create policy "producciones_read" on producciones_planificadas for select using (true);
+create policy "producciones_write" on producciones_planificadas for all using (
+  exists(select 1 from profiles where id = auth.uid() and (role = 'admin' or role = 'compras'))
+);
+
+-- Agregar campos de sheets MRP a config_sheets
+-- (ejecutar como ALTER si la tabla ya existe)
+-- ALTER TABLE config_sheets ADD COLUMN IF NOT EXISTS sheet_id_bom text;
+-- ALTER TABLE config_sheets ADD COLUMN IF NOT EXISTS sheet_name_bom text DEFAULT 'BASE BRUTA';
+-- ALTER TABLE config_sheets ADD COLUMN IF NOT EXISTS sheet_id_producciones text;
+-- ALTER TABLE config_sheets ADD COLUMN IF NOT EXISTS sheet_name_producciones text DEFAULT 'UNIFICADO';
+
+-- RPC: Cálculo MRP — necesidades de compra de insumos
+create or replace function get_mrp_analysis(p_meses_forecast int default 3)
+returns json as $$
+declare
+  result json;
+begin
+  select json_build_object(
+    'resumen', (
+      select json_build_object(
+        'total_pt', (select count(distinct codigo_principal) from bom_productos where nivel = 0),
+        'total_insumos', (select count(*) from stock_insumos),
+        'insumos_criticos', (
+          select count(*) from stock_insumos si
+          where si.stock_fisico <= 0
+            and exists(select 1 from bom_productos b where b.codigo_insumo = si.codigo and b.es_envase = true)
+        ),
+        'fecha_sync', (select max(fecha_sync) from stock_insumos)
+      )
+    ),
+    -- Análisis por producto terminado: stock, forecast, producción estimada, envase disponible, gap
+    'por_producto', (
+      select json_agg(row_to_json(t) order by t.gap_unidades desc) from (
+        select
+          sp.codigo,
+          sp.nombre,
+          sp.marca,
+          sp.stock_actual as stock_pt,
+          round((coalesce(nullif(sp.forecast_proximo_mes, 0), sp.venta_mensual_avg) * p_meses_forecast)::numeric, 0) as demanda_periodo,
+          coalesce((
+            select sum(pp.cantidad)
+            from producciones_planificadas pp
+            where pp.codigo = sp.codigo
+              and pp.mes >= date_trunc('month', now())
+              and pp.mes < date_trunc('month', now()) + (p_meses_forecast || ' months')::interval
+          ), 0) as produccion_estimada,
+          -- Envase: cuántas unidades puedo fabricar con stock de envases
+          coalesce((
+            select min(
+              case when b.cantidad_formula > 0
+                then floor(si.stock_fisico / b.cantidad_formula)
+                else 999999
+              end
+            )
+            from bom_productos b
+            join stock_insumos si on si.codigo = b.codigo_insumo
+            where b.codigo_principal = sp.codigo
+              and b.es_envase = true
+          ), 0) as capacidad_envase,
+          -- Gap = demanda - stock - producción estimada
+          greatest(0,
+            round((coalesce(nullif(sp.forecast_proximo_mes, 0), sp.venta_mensual_avg) * p_meses_forecast)::numeric, 0)
+            - sp.stock_actual
+            - coalesce((
+              select sum(pp.cantidad)
+              from producciones_planificadas pp
+              where pp.codigo = sp.codigo
+                and pp.mes >= date_trunc('month', now())
+                and pp.mes < date_trunc('month', now()) + (p_meses_forecast || ' months')::interval
+            ), 0)
+          ) as gap_unidades
+        from stock_productos sp
+        where sp.marca != 'Sin asignar'
+          and (sp.venta_mensual_avg > 0 or sp.forecast_proximo_mes > 0)
+        limit 500
+      ) t
+      where t.gap_unidades > 0 or t.capacidad_envase < t.demanda_periodo
+    ),
+    -- Compras sugeridas de insumos agrupadas por tipo
+    'compras_sugeridas', (
+      select json_agg(row_to_json(t) order by t.prioridad, t.tipo_insumo, t.gap_insumo desc) from (
+        select
+          si.codigo as codigo_insumo,
+          si.detalle,
+          si.tipo_insumo_global as tipo_insumo,
+          si.stock_fisico as stock_insumo,
+          si.lead_time_dias,
+          -- Demanda total del insumo = sum de (gap_PT × cantidad_formula) para todos los PT que lo usan
+          round(coalesce(sum(
+            greatest(0,
+              (coalesce(nullif(sp.forecast_proximo_mes, 0), sp.venta_mensual_avg) * p_meses_forecast)
+              - sp.stock_actual
+            ) * b.cantidad_formula
+          ), 0)::numeric, 0) as demanda_insumo,
+          -- Gap = demanda - stock actual del insumo
+          greatest(0, round((coalesce(sum(
+            greatest(0,
+              (coalesce(nullif(sp.forecast_proximo_mes, 0), sp.venta_mensual_avg) * p_meses_forecast)
+              - sp.stock_actual
+            ) * b.cantidad_formula
+          ), 0) - si.stock_fisico)::numeric, 0)) as gap_insumo,
+          case si.tipo_insumo_global
+            when 'frasco' then 1
+            when 'estuche' then 2
+            when 'esencia' then 3
+            else 4
+          end as prioridad,
+          count(distinct b.codigo_principal) as productos_afectados
+        from stock_insumos si
+        join bom_productos b on b.codigo_insumo = si.codigo and b.nivel > 0
+        join stock_productos sp on sp.codigo = b.codigo_principal and sp.marca != 'Sin asignar'
+        where sp.venta_mensual_avg > 0 or sp.forecast_proximo_mes > 0
+        group by si.codigo, si.detalle, si.tipo_insumo_global, si.stock_fisico, si.lead_time_dias
+        having coalesce(sum(
+          greatest(0,
+            (coalesce(nullif(sp.forecast_proximo_mes, 0), sp.venta_mensual_avg) * p_meses_forecast)
+            - sp.stock_actual
+          ) * b.cantidad_formula
+        ), 0) > si.stock_fisico
+      ) t
     )
   ) into result;
   return result;
