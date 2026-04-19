@@ -2090,32 +2090,32 @@ async function renderMRPPage(c) {
               <br><small>Marcas fab: ${[...marcasFab].join(', ') || 'ninguna'}</small>
             </p>`
           : `
-          <div style="overflow-x:auto;">
+          <div style="overflow-x:auto;max-height:80vh;overflow-y:auto;position:relative;">
             <table style="width:100%;border-collapse:collapse;font-size:11px;" id="mrpTblFab">
-              <thead>
-                <tr style="border-bottom:1px solid var(--border);background:var(--bg3);">
-                  <th rowspan="2" style="padding:4px 3px;text-align:left;">Código</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:left;">Producto</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:left;">Marca</th>
-                  <th colspan="2" style="padding:4px 3px;text-align:center;border-bottom:1px solid var(--border);color:var(--gold);">Venta</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:right;">Stock PT</th>
-                  <th colspan="3" style="padding:4px 3px;text-align:center;border-bottom:1px solid var(--border);color:var(--violet);">Stock Insumos</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:right;" title="Uds producibles con insumos actuales">Produc.</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:right;">Prod.Plan</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:center;" title="Fecha planificada de producción">Fch.Prod</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:right;">Disp.</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:center;">Cob.PT</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:center;">Cob.Tot</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:center;" title="Fecha estimada rotura stock PT">Quiebre</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:center;">Acción</th>
-                  <th rowspan="2" style="padding:4px 3px;text-align:left;">Cuello</th>
+              <thead style="position:sticky;top:0;z-index:10;">
+                <tr style="border-bottom:1px solid var(--border);background:var(--bg2);">
+                  <th rowspan="2" style="padding:4px 4px;text-align:left;background:var(--bg2);">Código</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:left;background:var(--bg2);">Producto</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:left;background:var(--bg2);">Marca</th>
+                  <th colspan="2" style="padding:4px 4px;text-align:center;border-bottom:1px solid var(--border);color:var(--gold);background:var(--bg2);">Venta</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:right;background:var(--bg2);">Stock PT</th>
+                  <th colspan="3" style="padding:4px 4px;text-align:center;border-bottom:1px solid var(--border);color:var(--violet);background:var(--bg2);">Stock Insumos</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:right;background:var(--bg2);" title="Uds producibles con insumos actuales">Produc.</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:right;background:var(--bg2);">Prod.Plan</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:center;background:var(--bg2);" title="Fecha planificada de producción">Fch.Prod</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:right;background:var(--bg2);">Disp.</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:center;background:var(--bg2);">Cob.PT</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:center;background:var(--bg2);">Cob.Tot</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:center;background:var(--bg2);" title="Fecha estimada rotura stock PT">Quiebre</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:center;background:var(--bg2);">Acción</th>
+                  <th rowspan="2" style="padding:4px 4px;text-align:left;background:var(--bg2);">Cuello</th>
                 </tr>
-                <tr style="border-bottom:2px solid var(--border);background:var(--bg3);">
-                  <th style="padding:2px 3px;text-align:right;font-size:9px;">Mes</th>
-                  <th style="padding:2px 3px;text-align:right;font-size:9px;">3M</th>
-                  <th style="padding:2px 3px;text-align:center;font-size:9px;" title="Botella/Frasco">Bot</th>
-                  <th style="padding:2px 3px;text-align:center;font-size:9px;" title="Estuche/Caja">Est</th>
-                  <th style="padding:2px 3px;text-align:center;font-size:9px;" title="Esencia/Fragancia">Ese</th>
+                <tr style="border-bottom:2px solid var(--border);background:var(--bg2);">
+                  <th style="padding:2px 4px;text-align:right;font-size:9px;background:var(--bg2);">Mes</th>
+                  <th style="padding:2px 3px;text-align:right;font-size:9px;background:var(--bg2);">3M</th>
+                  <th style="padding:2px 3px;text-align:center;font-size:9px;background:var(--bg2);" title="Botella/Frasco">Bot</th>
+                  <th style="padding:2px 3px;text-align:center;font-size:9px;background:var(--bg2);" title="Estuche/Caja">Est</th>
+                  <th style="padding:2px 3px;text-align:center;font-size:9px;background:var(--bg2);" title="Esencia/Fragancia">Ese</th>
                 </tr>
               </thead><tbody>
               ${fabTop.map((p, i) => `
