@@ -1,7 +1,7 @@
 // GET /api/sync-sheets — Daily cron: sync Google Sheets → Supabase stock_productos
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
- 
+
 let _supabase = null;
 function getSupabase() {
   if (!_supabase) {
@@ -12,7 +12,7 @@ function getSupabase() {
   }
   return _supabase;
 }
- 
+
 function getAuth() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_JSON env var');
@@ -22,7 +22,7 @@ function getAuth() {
     scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
   });
 }
- 
+
 function parseNum(val) {
   if (val == null || val === '' || val === '-') return 0;
   if (typeof val === 'number') return val;
@@ -30,16 +30,16 @@ function parseNum(val) {
   const n = parseFloat(cleaned);
   return isNaN(n) ? 0 : n;
 }
- 
+
 function getCurrentMonthCol() {
   const now = new Date();
   return now.getMonth();
 }
- 
+
 // ─── SYNC 1: Stock Sistema (nueva planilla — código + stock total sumando depósitos) ───
 async function syncStockSistema(sheets, config, supabase) {
   if (!config.sheet_id_stock_sistema) return { updated: 0, skipped: 'No sheet_id_stock_sistema configured' };
- 
+
   // 1. Read "Descripcion" sheet to get code → name mapping
   let descMap = {};
   try {
@@ -59,22 +59,22 @@ async function syncStockSistema(sheets, config, supabase) {
   } catch (e) {
     console.warn('Could not read Descripcion sheet:', e.message);
   }
- 
+
   // 2. Read "Stock Sistema" sheet — pivot table: CODIGO | dep1 | dep2 | ... | TOTAL
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: config.sheet_id_stock_sistema,
     range: `'${config.sheet_name_stock_sistema || 'Stock Sistema'}'`,
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
- 
+
   const rows = res.data.values || [];
   if (rows.length < 3) return { updated: 0, skipped: 'Not enough rows in Stock Sistema' };
- 
+
   // Row 0: "SUM de STOCK" | "DEPOSITO" | ...
   // Row 1: "CODIGO" | dep_100 | dep_105 | ... | (empty col?) | "TOTAL"
   // Row 2+: codigo | qty_dep1 | qty_dep2 | ... | total
   const headerRow = rows[1] || [];
- 
+
   // Find TOTAL column and deposit columns (numeric headers = deposit IDs)
   let totalColIdx = -1;
   const depositCols = [];
@@ -86,16 +86,16 @@ async function syncStockSistema(sheets, config, supabase) {
       depositCols.push(i);
     }
   }
- 
+
   console.log(`Stock Sistema: totalCol=${totalColIdx}, depositCols=${depositCols.length}, rows=${rows.length}`);
- 
+
   const updates = [];
   for (let r = 2; r < rows.length; r++) {
     const row = rows[r];
     const codigoRaw = row[0];
     if (codigoRaw == null || codigoRaw === '' || String(codigoRaw).toUpperCase() === 'TOTAL') continue;
     const codigo = String(codigoRaw).trim();
- 
+
     // Strategy: use TOTAL column if the row has data there, otherwise sum deposit columns
     let stockTotal = 0;
     if (totalColIdx >= 0 && row.length > totalColIdx && row[totalColIdx] != null) {
@@ -108,11 +108,11 @@ async function syncStockSistema(sheets, config, supabase) {
         }
       }
     }
- 
+
     if (stockTotal === 0 && !descMap[codigo]) continue;
- 
+
     const nombre = descMap[codigo] || `Producto ${codigo}`;
- 
+
     updates.push({
       codigo: codigo,
       nombre: nombre,
@@ -120,24 +120,24 @@ async function syncStockSistema(sheets, config, supabase) {
       fecha_sync: new Date().toISOString(),
     });
   }
- 
+
   if (updates.length === 0) return { updated: 0, skipped: 'No products found in Stock Sistema' };
- 
+
   // Build a map of codigo → stock_actual for fast lookup
   const stockMap = {};
   for (const u of updates) {
     stockMap[u.codigo] = u;
   }
- 
+
   // Get ALL existing products from stock_productos (with marca assigned)
   const { data: existing } = await supabase
     .from('stock_productos')
     .select('id, codigo, marca')
     .neq('marca', 'Sin asignar');
- 
+
   let updatedCount = 0;
   const matched = new Set();
- 
+
   // Update stock_actual for existing products that match by codigo
   for (const prod of (existing || [])) {
     const upd = stockMap[prod.codigo];
@@ -150,29 +150,29 @@ async function syncStockSistema(sheets, config, supabase) {
       if (!error) updatedCount++;
     }
   }
- 
+
   // Don't insert "Sin asignar" products — only update existing ones with marca
   const notMatched = updates.length - matched.size;
- 
+
   return { updated: updatedCount, matched_codes: matched.size, not_matched: notMatched, total_codes: updates.length };
 }
- 
+
 // ─── SYNC 2: Ventas/Stock/Cobertura (planilla original) ───
 async function syncStocks(sheets, config, supabase) {
   if (!config.sheet_id_stocks) return { updated: 0, skipped: 'No sheet_id_stocks configured' };
- 
+
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: config.sheet_id_stocks,
     range: `'${config.sheet_name_stocks || 'Ventas stock cierre cobertura'}'`,
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
- 
+
   const rows = res.data.values || [];
   if (rows.length < 3) return { updated: 0, skipped: 'Not enough rows' };
- 
+
   const headerRow = rows[0] || [];
   const monthRow = rows[1] || [];
- 
+
   let stocksStartCol = -1, coberturaStartCol = -1, ventasStartCol = -1;
   for (let i = 0; i < headerRow.length; i++) {
     const h = String(headerRow[i] || '').toUpperCase().trim();
@@ -180,11 +180,11 @@ async function syncStocks(sheets, config, supabase) {
     if (h.includes('STOCK') && h.includes('CIERRE')) stocksStartCol = i;
     if (h.includes('COBERTURA')) coberturaStartCol = i;
   }
- 
+
   const currentMonth = getCurrentMonthCol();
   const monthNames = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
   const curMonthName = monthNames[currentMonth];
- 
+
   function findMonthCol(startCol) {
     if (startCol < 0) return -1;
     for (let i = startCol; i < Math.min(startCol + 15, monthRow.length); i++) {
@@ -193,20 +193,20 @@ async function syncStocks(sheets, config, supabase) {
     }
     return startCol + 1;
   }
- 
+
   const ventasCol = findMonthCol(ventasStartCol);
   const stockCol = findMonthCol(stocksStartCol);
   const coberturaCol = findMonthCol(coberturaStartCol);
- 
+
   const productos = [];
   for (let r = 2; r < rows.length; r++) {
     const row = rows[r];
     const marca = String(row[0] || '').trim();
     const nombre = String(row[1] || '').trim();
     if (!marca || !nombre || marca === 'TOTAL' || marca === 'Total') continue;
- 
+
     const codigo = nombre.substring(0, 30).replace(/\s+/g, '_').toUpperCase();
- 
+
     productos.push({
       codigo: codigo,
       nombre: nombre,
@@ -217,44 +217,44 @@ async function syncStocks(sheets, config, supabase) {
       fecha_sync: new Date().toISOString(),
     });
   }
- 
+
   if (productos.length === 0) return { updated: 0, skipped: 'No products found' };
- 
+
   const { error } = await supabase.from('stock_productos').upsert(
     productos,
     { onConflict: 'codigo,marca' }
   );
- 
+
   if (error) throw new Error(`Upsert stocks error: ${error.message}`);
   return { updated: productos.length };
 }
- 
+
 // ─── SYNC 3: Forecast ───
 async function syncForecast(sheets, config, supabase) {
   if (!config.sheet_id_forecast) return { updated: 0, skipped: 'No sheet_id_forecast configured' };
- 
+
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: config.sheet_id_forecast,
     range: `'${config.sheet_name_forecast || 'Resumen Gral.'}'`,
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
- 
+
   const rows = res.data.values || [];
   if (rows.length < 2) return { updated: 0, skipped: 'Not enough rows' };
- 
+
   const headers = (rows[0] || []).map(h => String(h || '').toUpperCase().trim());
   const colIdx = (name) => headers.findIndex(h => h.includes(name));
- 
+
   const iSeg = colIdx('SEGMENTO');
   const iPolo = colIdx('POLO');
   const iMarca = colIdx('MARCA');
   const iCodigo = colIdx('CODIGO');
   const iNombre = colIdx('NOMBRE');
- 
+
   const nextMonth = (getCurrentMonthCol() + 1) % 12;
   const monthNames2 = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
   const nextMonthName = monthNames2[nextMonth];
- 
+
   let forecastCol = -1;
   for (let i = 0; i < headers.length; i++) {
     const h = headers[i];
@@ -268,7 +268,7 @@ async function syncForecast(sheets, config, supabase) {
       if (String(headers[i]).includes(nextMonthName)) { forecastCol = i; break; }
     }
   }
- 
+
   const updates = [];
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
@@ -276,9 +276,9 @@ async function syncForecast(sheets, config, supabase) {
     const codigo = String(row[iCodigo] || '').trim();
     const nombre = String(row[iNombre] || '').trim();
     if (!marca || !codigo) continue;
- 
+
     const forecastVal = forecastCol >= 0 ? parseNum(row[forecastCol]) : 0;
- 
+
     updates.push({
       codigo: codigo,
       nombre: nombre || codigo,
@@ -289,35 +289,35 @@ async function syncForecast(sheets, config, supabase) {
       fecha_sync: new Date().toISOString(),
     });
   }
- 
+
   if (updates.length === 0) return { updated: 0, skipped: 'No forecast products found' };
- 
+
   const { error } = await supabase.from('stock_productos').upsert(
     updates,
     { onConflict: 'codigo,marca', ignoreDuplicates: false }
   );
- 
+
   if (error) throw new Error(`Upsert forecast error: ${error.message}`);
   return { updated: updates.length };
 }
- 
+
 // ─── SYNC 4: BOM (BASE BRUTA — producto → insumos) ───
 async function syncBOM(sheets, config, supabase) {
   if (!config.sheet_id_bom) return { updated: 0, skipped: 'No sheet_id_bom configured' };
- 
+
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: config.sheet_id_bom,
     range: `'${config.sheet_name_bom || 'BASE BRUTA'}'`,
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
- 
+
   const rows = res.data.values || [];
   if (rows.length < 2) return { updated: 0, skipped: 'Not enough rows in BOM' };
- 
+
   // Row 0 = headers: GRUPO_PRODUCTO, CODIGO_PRINCIPAL, NIVEL_JERARQUIA, CATEGORIA_NOMBRE, CATEGORIA, CODIGO, DETALLE, INSUMO_PRINCIPAL_ORIGEN, CANTIDAD_FORMULA, TIPO_INSUMO, STOCK_FISICO, ...
   const headers = (rows[0] || []).map(h => String(h || '').toUpperCase().trim());
   const col = (name) => headers.findIndex(h => h.includes(name));
- 
+
   const iCodPrincipal = col('CODIGO_PRINCIPAL');
   const iNivel = col('NIVEL_JERARQUIA');
   const iCategoria = col('CATEGORIA_NOMBRE');
@@ -328,10 +328,10 @@ async function syncBOM(sheets, config, supabase) {
   const iStockFisico = col('STOCK_FISICO');
   const iDisponible = headers.indexOf('DISPONIBLE');
   const iGrupo = col('GRUPO_PRODUCTO');
- 
+
   const bomItems = [];
   const insumoStock = {};
- 
+
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     const codPrincipal = String(row[iCodPrincipal] || '').trim();
@@ -344,14 +344,14 @@ async function syncBOM(sheets, config, supabase) {
     const stockFisico = iStockFisico >= 0 ? parseNum(row[iStockFisico]) : 0;
     const disponible = iDisponible >= 0 ? parseNum(row[iDisponible]) : stockFisico;
     const nombrePrincipal = iGrupo >= 0 ? String(row[iGrupo] || '').trim() : '';
- 
+
     if (!codPrincipal || !codigo) continue;
- 
+
     // Detect envase: DETALLE contains ENVASE or FRASCO (but not CAJA, not ESENCIA, not TAPA, not COLLAR, not VALVULA)
     const detUp = detalle.toUpperCase();
     const esEnvase = (detUp.includes('ENVASE') || detUp.includes('FRASCO')) &&
                      !detUp.includes('CAJA') && !detUp.includes('ESENCIA');
- 
+
     if (nivel > 0) {
       bomItems.push({
         codigo_principal: codPrincipal,
@@ -365,7 +365,7 @@ async function syncBOM(sheets, config, supabase) {
         es_envase: esEnvase,
         fecha_sync: new Date().toISOString(),
       });
- 
+
       // Classify insumo type
       let tipoGlobal = 'otro';
       if (detUp.includes('ENVASE') || detUp.includes('FRASCO')) tipoGlobal = 'frasco';
@@ -374,13 +374,13 @@ async function syncBOM(sheets, config, supabase) {
       else if (detUp.includes('TAPA')) tipoGlobal = 'tapa';
       else if (detUp.includes('COLLAR')) tipoGlobal = 'collar';
       else if (detUp.includes('VALVULA') || detUp.includes('PUMP') || detUp.includes('BOMBA')) tipoGlobal = 'valvula';
- 
+
       // Lead time by type (days)
       let leadTimeDias = 90; // default
       if (tipoGlobal === 'frasco') leadTimeDias = 135; // 4.5 meses
       else if (tipoGlobal === 'estuche') leadTimeDias = 120; // 4 meses (China default)
       else if (tipoGlobal === 'esencia') leadTimeDias = 45; // 30-60 días
- 
+
       if (!insumoStock[codigo]) {
         insumoStock[codigo] = {
           codigo: codigo,
@@ -395,7 +395,7 @@ async function syncBOM(sheets, config, supabase) {
       }
     }
   }
- 
+
   // Upsert BOM in chunks
   let bomCount = 0;
   for (let i = 0; i < bomItems.length; i += 500) {
@@ -404,7 +404,7 @@ async function syncBOM(sheets, config, supabase) {
     if (!error) bomCount += chunk.length;
     else console.error('BOM upsert error:', error.message);
   }
- 
+
   // Upsert stock_insumos
   const insumoArr = Object.values(insumoStock);
   let insumoCount = 0;
@@ -414,37 +414,37 @@ async function syncBOM(sheets, config, supabase) {
     if (!error) insumoCount += chunk.length;
     else console.error('Insumos upsert error:', error.message);
   }
- 
+
   return { bom_rows: bomCount, insumos: insumoCount };
 }
- 
+
 // ─── SYNC 5: Producciones planificadas (UNIFICADO) ───
 async function syncProducciones(sheets, config, supabase) {
   if (!config.sheet_id_producciones) return { updated: 0, skipped: 'No sheet_id_producciones configured' };
- 
+
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: config.sheet_id_producciones,
     range: `'${config.sheet_name_producciones || 'UNIFICADO'}'`,
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
- 
+
   const rows = res.data.values || [];
   if (rows.length < 2) return { updated: 0, skipped: 'Not enough rows in Producciones' };
- 
+
   // Row 0 = headers: CODIGO, PROVEEDOR, MARCA, DESCRIPCION, (blank), ABRIL, Junio 26, Julio 26, ...
   const headers = rows[0] || [];
- 
+
   // Parse month columns (col 4+)
   const monthCols = [];
   const monthNames = {
     'ENERO': 0, 'FEBRERO': 1, 'MARZO': 2, 'ABRIL': 3, 'MAYO': 4, 'JUNIO': 5,
     'JULIO': 6, 'AGOSTO': 7, 'SEPTIEMBRE': 8, 'OCTUBRE': 9, 'NOVIEMBRE': 10, 'DICIEMBRE': 11
   };
- 
+
   for (let c = 4; c < headers.length; c++) {
     const h = String(headers[c] || '').trim().toUpperCase();
     if (!h || h === 'COSTO') continue;
- 
+
     // Try to parse month + year from header like "Junio 26" or "ABRIL"
     for (const [mName, mIdx] of Object.entries(monthNames)) {
       if (h.includes(mName)) {
@@ -460,21 +460,21 @@ async function syncProducciones(sheets, config, supabase) {
       }
     }
   }
- 
+
   const producciones = [];
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r];
     const codigo = String(row[0] || '').trim();
     if (!codigo || isNaN(Number(codigo))) continue;
- 
+
     const proveedor = String(row[1] || '').trim();
     const marca = String(row[2] || '').trim();
     const descripcion = String(row[3] || '').trim().substring(0, 200);
- 
+
     for (const mc of monthCols) {
       const qty = parseNum(row[mc.col]);
       if (qty <= 0) continue;
- 
+
       producciones.push({
         codigo: codigo,
         marca: marca,
@@ -486,9 +486,9 @@ async function syncProducciones(sheets, config, supabase) {
       });
     }
   }
- 
+
   if (producciones.length === 0) return { updated: 0, skipped: 'No production data found' };
- 
+
   // Clear old and upsert
   let count = 0;
   for (let i = 0; i < producciones.length; i += 500) {
@@ -497,15 +497,15 @@ async function syncProducciones(sheets, config, supabase) {
     if (!error) count += chunk.length;
     else console.error('Producciones upsert error:', error.message);
   }
- 
+
   return { updated: count, months_parsed: monthCols.length };
 }
- 
+
 // ─── HANDLER ───
 export default async function handler(req, res) {
   let authorized = false;
   const authHeader = req.headers.authorization || '';
- 
+
   if (authHeader === `Bearer ${process.env.CRON_SECRET}`) authorized = true;
   if (!authorized && req.headers['x-api-key'] === process.env.INTERNAL_API_KEY) authorized = true;
   if (!authorized && authHeader.startsWith('Bearer ')) {
@@ -516,30 +516,30 @@ export default async function handler(req, res) {
       if (user && !error) authorized = true;
     } catch (_) {}
   }
- 
+
   if (!authorized) return res.status(401).json({ error: 'Unauthorized' });
- 
+
   try {
     const supabase = getSupabase();
- 
+
     const { data: configArr } = await supabase.from('config_sheets').select('*').eq('id', 1);
     const config = configArr?.[0];
     if (!config || !config.sync_enabled) {
       return res.status(200).json({ message: 'Sync disabled or not configured' });
     }
- 
+
     const auth = getAuth();
     const sheets = google.sheets({ version: 'v4', auth });
- 
+
     // Step 1: Sync stocks + forecast in parallel (these CREATE products with marca)
     const [stockResult, forecastResult] = await Promise.allSettled([
       syncStocks(sheets, config, supabase),
       syncForecast(sheets, config, supabase),
     ]);
- 
+
     const stockRes = stockResult.status === 'fulfilled' ? stockResult.value : { error: stockResult.reason?.message };
     const forecastRes = forecastResult.status === 'fulfilled' ? forecastResult.value : { error: forecastResult.reason?.message };
- 
+
     // Step 2: THEN sync Stock Sistema (updates stock_actual on existing products by codigo)
     let stockSistemaRes = { skipped: 'Not configured' };
     try {
@@ -547,28 +547,28 @@ export default async function handler(req, res) {
     } catch (e) {
       stockSistemaRes = { error: e.message };
     }
- 
+
     await supabase.rpc('recalculate_cobertura');
- 
+
     // Step 3: Sync BOM + Producciones in parallel
     const [bomResult, prodResult] = await Promise.allSettled([
       syncBOM(sheets, config, supabase),
       syncProducciones(sheets, config, supabase),
     ]);
- 
+
     const bomRes = bomResult.status === 'fulfilled' ? bomResult.value : { error: bomResult.reason?.message };
     const prodRes = prodResult.status === 'fulfilled' ? prodResult.value : { error: prodResult.reason?.message };
- 
+
     const allErrors = [stockSistemaRes.error, stockRes.error, forecastRes.error, bomRes.error, prodRes.error].filter(Boolean);
     const totalUpdated = (stockSistemaRes.updated || 0) + (stockRes.updated || 0) + (forecastRes.updated || 0);
- 
+
     await supabase.from('stock_sync_log').insert({
       productos_actualizados: totalUpdated,
       errores: allErrors.join('; ') || null,
     });
- 
+
     await supabase.from('config_sheets').update({ last_sync: new Date().toISOString() }).eq('id', 1);
- 
+
     return res.status(200).json({
       message: 'Sync completed',
       stock_sistema: stockSistemaRes,
