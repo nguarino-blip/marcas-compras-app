@@ -2084,11 +2084,12 @@ async function saveConfigSheets(btn) {
     };
 
     const save = (async () => {
-      const { error: insErr } = await sb.from('config_sheets').insert({ id: 1, ...configData });
-      if (insErr) {
-        console.log('Insert failed:', insErr.message, '→ trying update');
+      // Try upsert first
+      const { error: upsErr } = await sb.from('config_sheets').upsert({ id: 1, ...configData }, { onConflict: 'id' });
+      if (upsErr) {
+        console.log('Upsert failed:', upsErr.message, '→ trying update only');
         const { error: updErr } = await sb.from('config_sheets').update(configData).eq('id', 1);
-        if (updErr) throw new Error(updErr.message);
+        if (updErr) throw new Error('Update: ' + updErr.message + ' | Upsert: ' + upsErr.message);
       }
     })();
 
