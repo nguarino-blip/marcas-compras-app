@@ -146,27 +146,9 @@ async function syncStockSistema(sheets, config, supabase) {
   // Don't insert "Sin asignar" products — only update existing ones with marca
   const notMatched = updates.length - matched.size;
 
-  // ALSO update stock_insumos.stock_fisico with real stock from this sheet
-  // The insumo codes should match product codes in the stock pivot table
-  let insumoUpdated = 0;
-  try {
-    const { data: insumos } = await supabase.from('stock_insumos').select('id, codigo');
-    for (const ins of (insumos || [])) {
-      const stk = stockMap[ins.codigo];
-      if (stk) {
-        const { error } = await supabase
-          .from('stock_insumos')
-          .update({ stock_fisico: stk.stock_actual, stock_disponible: stk.stock_actual, fecha_sync: stk.fecha_sync })
-          .eq('id', ins.id);
-        if (!error) insumoUpdated++;
-      }
-    }
-    console.log(`Stock Sistema: updated ${insumoUpdated} insumos stock from pivot data`);
-  } catch (e) {
-    console.warn('Error updating stock_insumos from stock pivot:', e.message);
-  }
-
-  return { updated: updatedCount, insumos_updated: insumoUpdated, matched_codes: matched.size, not_matched: notMatched, total_codes: updates.length };
+  // NOTE: stock_insumos update moved to handler (after syncBOM) to avoid being overwritten
+  // Return stockMap so handler can use it after BOM sync completes
+  return { updated: updatedCount, matched_codes: matched.size, not_matched: notMatched, total_codes: updates.length, _stockMap: stockMap };
 }
 
 // ─── SYNC 2: Ventas/Stock from "Datos" flat table ───
@@ -735,7 +717,35 @@ export default async function handler(req, res) {
     const bomRes = bomResult.status === 'fulfilled' ? bomResult.value : { error: bomResult.reason?.message };
     const prodRes = prodResult.status === 'fulfilled' ? prodResult.value : { error: prodResult.reason?.message };
 
-    const allErrors = [stockSistemaRes.error, stockRes.error, forecastRes.error, bomRes.error, prodRes.error].filter(Boolean);
+    // Step 4: AFTER BOM sync (which deletes+recreates stock_insumos), update stock_fisico with real stock
+    // This MUST run after syncBOM because syncBOM wipes stock_insumos and re-inserts with stale values
+    let insumoStockUpdate = { updated: 0 };
+    const stockMap = stockSistemaRes._stockMap;
+    if (stockMap && Object.keys(stockMap).length > 0) {
+      try {
+        const { data: insumos } = await supabase.from('stock_insumos').select('id, codigo');
+        let insumoUpdated = 0;
+        for (const ins of (insumos || [])) {
+          const stk = stockMap[ins.codigo];
+          if (stk) {
+            const { error } = await supabase
+              .from('stock_insumos')
+              .update({ stock_fisico: stk.stock_actual, stock_disponible: stk.stock_actual, fecha_sync: stk.fecha_sync })
+              .eq('id', ins.id);
+            if (!error) insumoUpdated++;
+          }
+        }
+        insumoStockUpdate = { updated: insumoUpdated, total_insumos: (insumos || []).length, stock_codes: Object.keys(stockMap).length };
+        console.log(`Post-BOM: updated ${insumoUpdated}/${(insumos || []).length} insumos with real stock from ${Object.keys(stockMap).length} pivot codes`);
+      } catch (e) {
+        insumoStockUpdate = { error: e.message };
+        console.warn('Error updating stock_insumos post-BOM:', e.message);
+      }
+    }
+    // Clean internal data from response
+    if (stockSistemaRes._stockMap) delete stockSistemaRes._stockMap;
+
+    const allErrors = [stockSistemaRes.error, stockRes.error, forecastRes.error, bomRes.error, prodRes.error, insumoStockUpdate.error].filter(Boolean);
     const totalUpdated = (stockSistemaRes.updated || 0) + (stockRes.updated || 0) + (forecastRes.updated || 0);
 
     await supabase.from('stock_sync_log').insert({
@@ -752,6 +762,7 @@ export default async function handler(req, res) {
       forecast: forecastRes,
       bom: bomRes,
       producciones: prodRes,
+      insumo_stock_update: insumoStockUpdate,
     });
   } catch (err) {
     console.error('Sync sheets error:', err);
