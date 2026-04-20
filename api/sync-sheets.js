@@ -40,30 +40,22 @@ function getCurrentMonthCol() {
 async function syncStockSistema(sheets, config, supabase) {
   if (!config.sheet_id_stock_sistema) return { updated: 0, skipped: 'No sheet_id_stock_sistema configured' };
 
-  // 1. Read "Descripcion" sheet to get code → name mapping
+  // 1. Read description mapping from existing stock_productos in Supabase (already has names from forecast sync)
   let descMap = {};
   try {
-    const descRes = await sheets.spreadsheets.values.get({
-      spreadsheetId: config.sheet_id_stock_sistema,
-      range: `'${config.sheet_name_descripcion || 'Descripcion'}'`,
-      valueRenderOption: 'UNFORMATTED_VALUE',
-    });
-    const descRows = descRes.data.values || [];
-    // Row 0 = headers: CODIGO, AGRUPA, NOMBRE_COR, DETALLE
-    for (let r = 1; r < descRows.length; r++) {
-      const row = descRows[r];
-      const codigo = String(row[0] || '').trim();
-      const nombre = String(row[2] || row[3] || '').trim();
-      if (codigo) descMap[codigo] = nombre;
+    const { data: existingProds } = await supabase.from('stock_productos').select('codigo, nombre').neq('nombre', '');
+    for (const p of (existingProds || [])) {
+      if (p.codigo && p.nombre) descMap[p.codigo] = p.nombre;
     }
+    console.log(`Stock Sistema: loaded ${Object.keys(descMap).length} product names from stock_productos`);
   } catch (e) {
-    console.warn('Could not read Descripcion sheet:', e.message);
+    console.warn('Could not load product names:', e.message);
   }
 
-  // 2. Read "Stock Sistema" sheet — pivot table: CODIGO | dep1 | dep2 | ... | TOTAL
+  // 2. Read Stock pivot table: CODIGO | dep1 | dep2 | ... (sum all deposits)
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: config.sheet_id_stock_sistema,
-    range: `'${config.sheet_name_stock_sistema || 'Stock Sistema'}'`,
+    range: `'${config.sheet_name_stock_sistema || 'STOCK'}'`,
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
 
@@ -469,21 +461,35 @@ async function syncBOM(sheets, config, supabase) {
         fecha_sync: new Date().toISOString(),
       });
 
-      // Classify insumo type based on DETALLE keywords
+      // Classify insumo type based on DETALLE + CATEGORIA keywords
+      const catUp = categoria.toUpperCase();
       let tipoGlobal = 'otro';
-      if (detUp.includes('ENVASE') || detUp.includes('FRASCO') || detUp.includes('FLACON')) tipoGlobal = 'frasco';
-      else if (detUp.includes('CAJA') || detUp.includes('ESTUCHE') || detUp.includes('INTERIOR') || detUp.includes('DISPLAY')) tipoGlobal = 'estuche';
-      else if (detUp.includes('ESENCIA') || detUp.includes('FRAGANCIA') || detUp.includes('PERFUME') || detUp.includes('PARFUM') || detUp.includes('EAU DE') || detUp.includes('CONCENTRADO') || detUp.includes('COMPOUND')) tipoGlobal = 'esencia';
-      else if (detUp.includes('TAPA')) tipoGlobal = 'tapa';
-      else if (detUp.includes('COLLAR')) tipoGlobal = 'collar';
-      else if (detUp.includes('VALVULA') || detUp.includes('PUMP') || detUp.includes('BOMBA')) tipoGlobal = 'valvula';
-      else if (detUp.includes('BLOTTER') || detUp.includes('ETIQUETA') || detUp.includes('STICKER')) tipoGlobal = 'otro';
+      if (detUp.includes('ENVASE') || detUp.includes('FRASCO') || detUp.includes('FLACON') || detUp.includes('BOTELLA')
+          || catUp.includes('ENVASE') || catUp.includes('FRASCO') || catUp.includes('FLACON')) tipoGlobal = 'frasco';
+      else if (detUp.includes('CAJA') || detUp.includes('ESTUCHE') || detUp.includes('INTERIOR') || detUp.includes('DISPLAY')
+          || detUp.includes('PACKAGING') || detUp.includes('BLISTER') || detUp.includes('SOBRE')
+          || catUp.includes('ESTUCHE') || catUp.includes('CAJA') || catUp.includes('PACKAGING')) tipoGlobal = 'estuche';
+      else if (detUp.includes('ESENCIA') || detUp.includes('FRAGANCIA') || detUp.includes('PERFUME') || detUp.includes('PARFUM')
+          || detUp.includes('EAU DE') || detUp.includes('CONCENTRADO') || detUp.includes('COMPOUND') || detUp.includes('ACEITE')
+          || detUp.includes('BODY SPLASH') || detUp.includes('BODY MIST') || detUp.includes('COLONIA')
+          || catUp.includes('ESENCIA') || catUp.includes('FRAGANCIA') || catUp.includes('CONCENTRADO')) tipoGlobal = 'esencia';
+      else if (detUp.includes('TAPA') || detUp.includes('ROSCA') || catUp.includes('TAPA')) tipoGlobal = 'tapa';
+      else if (detUp.includes('COLLAR') || detUp.includes('ANILLO') || detUp.includes('ARO') || catUp.includes('COLLAR')) tipoGlobal = 'collar';
+      else if (detUp.includes('VALVULA') || detUp.includes('PUMP') || detUp.includes('BOMBA') || detUp.includes('SPRAY')
+          || detUp.includes('DOSIFICADOR') || detUp.includes('ATOMIZADOR')
+          || catUp.includes('VALVULA') || catUp.includes('PUMP')) tipoGlobal = 'valvula';
+      else if (detUp.includes('ETIQUETA') || detUp.includes('STICKER') || detUp.includes('LABEL')
+          || detUp.includes('SLEEVE') || detUp.includes('TERMOCONTRAIBLE')) tipoGlobal = 'etiqueta';
+      else if (detUp.includes('BLOTTER') || detUp.includes('MUESTRA') || detUp.includes('PROBADOR')
+          || detUp.includes('TESTER')) tipoGlobal = 'promo';
 
       // Lead time by type (days)
       let leadTimeDias = 90; // default
       if (tipoGlobal === 'frasco') leadTimeDias = 135; // 4.5 meses
       else if (tipoGlobal === 'estuche') leadTimeDias = 120; // 4 meses (China default)
       else if (tipoGlobal === 'esencia') leadTimeDias = 45; // 30-60 días
+      else if (tipoGlobal === 'tapa' || tipoGlobal === 'collar' || tipoGlobal === 'valvula') leadTimeDias = 120;
+      else if (tipoGlobal === 'etiqueta') leadTimeDias = 30;
 
       // Store insumo stock — if same codigo appears multiple times, keep the one with higher stock
       if (!insumoStock[codigo] || stockFisico > (insumoStock[codigo].stock_fisico || 0)) {
