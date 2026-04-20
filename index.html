@@ -558,6 +558,7 @@ async function doRegister() {
 }
 
 async function doLogout() {
+  if (_realtimeChannel) { _realtimeChannel.unsubscribe(); _realtimeChannel = null; }
   if (_dataRefreshInterval) { clearInterval(_dataRefreshInterval); _dataRefreshInterval = null; }
   await sb.auth.signOut();
   currentUser = null; currentProfile = null;
@@ -1127,7 +1128,8 @@ function renderSolicitudes(c) {
 }
 
 function toggleSelectAll(checked) {
-  document.querySelectorAll('.sol-check').forEach(c => c.checked = checked);
+  // Only select visible (non-hidden) checkboxes to respect active filters
+  document.querySelectorAll('.sol-card:not([style*="display: none"]):not([style*="display:none"]) .sol-check').forEach(c => c.checked = checked);
 }
 
 function filterSolicitudes() { filterSolicitudesAdv(); }
@@ -2657,8 +2659,11 @@ function markUserDirty(userId) {
   if (btn) btn.style.display = 'inline-block';
 }
 
+function isAdmin() { return currentProfile?.role === 'admin' || (currentProfile?.role === 'compras' && currentProfile?.can_approve_solicitud); }
+
 // Admin: Save user profile (role + can_approve)
 async function saveUserProfile(userId) {
+  if (!isAdmin()) { toast('Acceso restringido', true); return; }
   const roleEl = document.getElementById(`role_${userId}`);
   const approveEl = document.getElementById(`approve_${userId}`);
   if (!roleEl) return;
@@ -2675,6 +2680,7 @@ async function saveUserProfile(userId) {
 
 // Admin: Add brand to user
 async function addBrandToUser(userId) {
+  if (!isAdmin()) { toast('Acceso restringido', true); return; }
   const marca = document.getElementById(`addBrand_${userId}`)?.value;
   if (!marca) return;
   await withRetry(async () => {
@@ -2690,6 +2696,7 @@ async function addBrandToUser(userId) {
 }
 
 async function removeBrandFromUser(userId, marca) {
+  if (!isAdmin()) { toast('Acceso restringido', true); return; }
   await withRetry(async () => {
     const { error } = await sb.from('usuario_marcas').delete().eq('user_id', userId).eq('marca', marca);
     if (error) throw error;
@@ -2699,6 +2706,7 @@ async function removeBrandFromUser(userId, marca) {
 }
 
 async function removeAllBrandsFromUser(userId) {
+  if (!isAdmin()) { toast('Acceso restringido', true); return; }
   await withRetry(async () => {
     const { error } = await sb.from('usuario_marcas').delete().eq('user_id', userId);
     if (error) throw error;
@@ -2750,6 +2758,7 @@ function extractSheetId(input) {
 }
 
 async function saveConfigSheets(btn) {
+  if (!isAdmin()) { toast('Acceso restringido', true); return; }
   const status = document.getElementById('sheetsStatus');
   if (btn) btn.disabled = true;
   if (status) { status.textContent = 'Guardando...'; status.style.color = 'var(--gold)'; }
@@ -3565,9 +3574,15 @@ async function openSolicitud(id) {
   const c = document.getElementById('tabContent');
   c.innerHTML = '<div class="loading">Cargando solicitud...</div>';
   viewingSolicitud = id;
-  const data = await loadSolicitudFull(id);
-  if (!data.solicitud) return toast('No se encontró la solicitud', true);
-  renderSolicitudDetail(c, data);
+  try {
+    const data = await loadSolicitudFull(id);
+    if (!data.solicitud) { toast('No se encontró la solicitud', true); switchTab(currentTab); return; }
+    renderSolicitudDetail(c, data);
+  } catch (err) {
+    console.error('Error cargando solicitud:', err);
+    toast('Error al cargar solicitud: ' + (err.message || err), true);
+    switchTab(currentTab);
+  }
 }
 
 function renderSolicitudDetail(c, data) {
@@ -3581,7 +3596,7 @@ function renderSolicitudDetail(c, data) {
     </div>
     <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:12px;">
       <div>
-        <h2 style="color:var(--gold);margin-bottom:4px;">#${s.numero} — ${s.nombre}</h2>
+        <h2 style="color:var(--gold);margin-bottom:4px;">#${s.numero} — ${esc(s.nombre)}</h2>
         <div style="color:var(--txt2);font-size:14px;">${s.marca} · ${s.tipo} · Creado por ${s.profiles?.full_name || 'N/A'}${s.descripcion?.includes('[Origen: Compra Local]') ? ' · <span style="color:var(--green);font-weight:600;">LOCAL</span>' : s.descripcion?.includes('[Origen: Exterior') ? ' · <span style="color:var(--blue);font-weight:600;">EXTERIOR</span>' : ''}</div>
       </div>
       <div>${pill(s.status)}</div>
@@ -3604,14 +3619,14 @@ function renderSolicitudDetail(c, data) {
     <div class="grid grid-2" style="margin-top:16px;">
       <div class="card">
         <h3>Información</h3>
-        ${s.descripcion ? `<p style="margin-bottom:8px;">${s.descripcion}</p>` : ''}
+        ${s.descripcion ? `<p style="margin-bottom:8px;">${esc(s.descripcion)}</p>` : ''}
         <div class="meta">Fecha Sell-in: <strong>${fmtDate(s.fecha_sell_in)}</strong></div>
         <div class="meta">Fecha Lanzamiento: <strong>${fmtDate(s.fecha_lanzamiento)}</strong>
           ${(isCompras() || canApprove()) && s.status !== 'Completado' ? `<button class="btn-outline btn-sm" onclick="changeLaunchDate('${s.id}','${s.fecha_lanzamiento}')" style="margin-left:8px;">Cambiar fecha</button>` : ''}
         </div>
         <div class="meta">Costo objetivo: <strong>${s.costo_objetivo ? 'USD ' + s.costo_objetivo : '-'}</strong></div>
         <div class="meta">Cotización: <strong>${s.cotizacion_responsable || '-'}${s.cotizacion_responsable_nombre ? ' (' + s.cotizacion_responsable_nombre + ')' : ''}</strong></div>
-        ${s.links_referencia?.length ? `<div class="meta">Links: ${s.links_referencia.map(l => `<a href="${l}" target="_blank">${l.substring(0, 50)}...</a>`).join(', ')}</div>` : ''}
+        ${s.links_referencia?.length ? `<div class="meta">Links: ${s.links_referencia.map(l => `<a href="${esc(l)}" target="_blank" rel="noopener">${esc(l.substring(0, 50))}...</a>`).join(', ')}</div>` : ''}
       </div>
       <div class="card">
         <h3>Acciones</h3>
@@ -4160,14 +4175,7 @@ async function despacharMuestras(id) {
 
   await completePasoByName(id, 'Pedido de muestras');
 
-  // Store tracking info in comex_seguimiento (reusing the table for tracking data)
-  await sb.from('historial').insert({
-    solicitud_id: id, actor_id: currentUser.id,
-    evento: 'Muestras despachadas',
-    detalle: `Courier: ${courier || 'DHL'} | Tracking: ${tracking} | Despacho: ${despacho}${eta ? ' | ETA: ' + eta : ''}`
-  });
-
-  // Also store in notas for easy retrieval
+  // Store tracking in notas for easy retrieval (historial created by updateStatus below)
   const notasActuales = s.notas || '';
   const notasTracking = `\n[TRACKING MUESTRAS] Courier: ${courier || 'DHL'} | Tracking: ${tracking} | Despacho: ${despacho}${eta ? ' | ETA: ' + eta : ''}`;
   await safeUpdateNotas(id, notasActuales + notasTracking);
@@ -4228,18 +4236,23 @@ async function approveAllAesthetic(solId) {
   try {
     const { data: items } = await sb.from('solicitud_items').select('id, status_estetico').eq('solicitud_id', solId);
     const pendientes = items?.filter(i => i.status_estetico === 'pendiente') || [];
+    const rechazados = items?.filter(i => i.status_estetico === 'rechazado') || [];
+    if (!pendientes.length && !rechazados.length) { toast('No hay ítems pendientes'); return; }
     for (const it of pendientes) {
       await sb.from('solicitud_items').update({
         status_estetico: 'aprobado', aprobado_estetico_by: currentUser.id,
         aprobado_estetico_at: new Date().toISOString()
       }).eq('id', it.id);
     }
-    await sb.from('solicitudes').update({ status: 'Esperando muestras técnicas' }).eq('id', solId);
-    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Todos los ítems aprobados estéticamente' });
-    await completePasoByName(solId, 'Aprobación estética (Marcas)');
+    // Only advance status if ALL items are approved (none rejected)
+    if (rechazados.length === 0) {
+      await sb.from('solicitudes').update({ status: 'Esperando muestras técnicas' }).eq('id', solId);
+      await completePasoByName(solId, 'Aprobación estética (Marcas)');
+    }
+    await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: rechazados.length ? `${pendientes.length} ítems aprobados (${rechazados.length} rechazados pendientes)` : 'Todos los ítems aprobados estéticamente' });
     await loadSolicitudes();
     await openSolicitud(solId);
-    toast('Todos los ítems aprobados');
+    toast(rechazados.length ? `Pendientes aprobados. ${rechazados.length} ítem(s) rechazados requieren atención.` : 'Todos los ítems aprobados');
   } catch (err) {
     console.error(err);
     toast('Error: ' + err.message, true);
@@ -4390,11 +4403,10 @@ async function calidadReject(id) {
 
 async function approveInspeccion(solId, tipo) {
   const { data: insp } = await sb.from('inspecciones').select('*').eq('solicitud_id', solId).eq('tipo', tipo).single();
-  if (insp) {
-    await sb.from('inspecciones').update({
-      resultado: 'aprobado', aprobado_by: currentUser.id, aprobado_at: new Date().toISOString()
-    }).eq('id', insp.id);
-  }
+  if (!insp) { toast('No se encontró la inspección', true); return; }
+  await sb.from('inspecciones').update({
+    resultado: 'aprobado', aprobado_by: currentUser.id, aprobado_at: new Date().toISOString()
+  }).eq('id', insp.id);
   await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: `Inspección ${tipo} aprobada` });
 
   // Check if all inspections approved (need at least 3: calidad, cantidad, docs)
@@ -4741,9 +4753,9 @@ async function changeLaunchDate(id, currentDate) {
   });
 
   const s = solicitudes.find(x => x.id === id);
-  // Notify all involved
-  const { data: profileEmails } = await sb.from('profiles').select('email');
-  const emails = profileEmails?.map(p => p.email) || [];
+  // Notify only compras + calidad + creator (not ALL users)
+  const { data: profileEmails } = await sb.from('profiles').select('email, role').in('role', ['compras', 'calidad', 'admin']);
+  const emails = [...new Set([...(profileEmails?.map(p => p.email) || []), s?.profiles?.email].filter(Boolean))];
   await sendEmail(emails,
     `CAMBIO DE FECHA: Solicitud #${s.numero} — ${s.nombre}`,
     `<p><strong>${currentProfile.full_name}</strong> cambió la fecha de lanzamiento de <strong>${s.nombre}</strong>.</p>
@@ -4909,7 +4921,7 @@ async function sendEmail(to, subject, html) {
     console.warn('Email send error:', e);
     // Fallback: open mailto
     const emails = Array.isArray(to) ? to.join(',') : to;
-    window.open(`mailto:${emails}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(subject)}`);
+    window.open(`mailto:${emails}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(html.replace(/<[^>]*>/g, ''))}`);
   }
 }
 
@@ -4930,6 +4942,7 @@ async function syncSemaforoToSheets(semaforo) {
   const rows = [];
   const today = new Date().toISOString().split('T')[0];
 
+  const rojoIds = new Set(semaforo.rojo.map(x => x.sol.id));
   [...semaforo.amarillo, ...semaforo.rojo].forEach(x => {
     rows.push([
       today,
@@ -4941,7 +4954,7 @@ async function syncSemaforoToSheets(semaforo) {
       x.paso || '',
       x.responsable || '',
       x.dias ?? '',
-      x.dias !== null && x.dias <= 0 ? 'ROJO' : 'AMARILLO'
+      rojoIds.has(x.sol.id) ? 'ROJO' : 'AMARILLO'
     ]);
   });
 
@@ -4957,6 +4970,10 @@ async function syncSemaforoToSheets(semaforo) {
 }
 
 // =============================================
+// HTML ESCAPE UTILITY (XSS protection)
+// =============================================
+function esc(s) { if (!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
 // CUSTOM CONFIRM / PROMPT MODALS (replaces native confirm/prompt)
 // =============================================
 function asyncConfirm(message, { title = 'Confirmar', danger = false, confirmText = 'Confirmar', cancelText = 'Cancelar' } = {}) {
@@ -5023,6 +5040,7 @@ async function main() {
       await initApp(session.user);
     } else if (event === 'SIGNED_OUT') {
       currentUser = null; currentProfile = null;
+      if (_realtimeChannel) { _realtimeChannel.unsubscribe(); _realtimeChannel = null; }
       if (_dataRefreshInterval) { clearInterval(_dataRefreshInterval); _dataRefreshInterval = null; }
       document.getElementById('appMain').classList.add('hidden');
       document.getElementById('authScreen').classList.remove('hidden');
@@ -5048,10 +5066,12 @@ function startDataRefresh() {
         toast('Tu sesión expiró. Por favor, iniciá sesión nuevamente.', true);
         return;
       }
+      const sv = _tabRenderVersion;
       await loadSolicitudes();
+      if (sv !== _tabRenderVersion) return; // tab changed during refresh
       if (currentTab === 'dashboard') {
         const c = document.getElementById('tabContent');
-        if (c) renderDashboard(c);
+        if (c && !viewingSolicitud) renderDashboard(c);
       }
     } catch (e) {
       console.warn('Data refresh error:', e);
@@ -5067,13 +5087,16 @@ function startRealtimeSubscription() {
   if (_realtimeChannel) _realtimeChannel.unsubscribe();
   _realtimeChannel = sb.channel('solicitudes-changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'solicitudes' }, async (payload) => {
+      if (!currentUser) return; // signed out, ignore
+      const snapshotVersion = _tabRenderVersion;
       const oldData = solicitudes.find(s => s.id === payload.old?.id);
       await loadSolicitudes();
-      // Show notification
+      // Show notification (suppress own actions by checking created_by/updated_at proximity)
       if (payload.eventType === 'UPDATE' && payload.new.status !== oldData?.status) {
         showRealtimeNotif(payload.new, oldData?.status, payload.new.status);
       }
-      // Refresh current tab view (only solicitudes-dependent tabs; MRP/S&OP fetch their own data)
+      // Refresh current tab view only if tab hasn't changed during await
+      if (snapshotVersion !== _tabRenderVersion) return;
       const c = document.getElementById('tabContent');
       if (c && !viewingSolicitud) {
         if (currentTab === 'dashboard') renderDashboard(c);
@@ -5202,7 +5225,7 @@ function filterSolicitudesAdv() {
   else filtered = filtered.filter(s => s.status !== 'Eliminada');
   if (mk) filtered = filtered.filter(s => s.marca === mk);
   if (tp) filtered = filtered.filter(s => s.tipo === tp);
-  if (df) filtered = filtered.filter(s => (s.created_at || '') >= df);
+  if (df) filtered = filtered.filter(s => (s.created_at || '').substring(0,10) >= df);
   if (dt) filtered = filtered.filter(s => (s.created_at || '').substring(0,10) <= dt);
   document.getElementById('solList').innerHTML = filtered.map(s => solicitudCardEnhanced(s, true)).join('') || '<p style="color:var(--txt2)">Sin resultados</p>';
   updateSolCount(filtered.length);
@@ -5408,6 +5431,7 @@ function kanbanDragStart(e) {
   _draggedSolId = e.target.dataset.id;
   e.target.classList.add('dragging');
   e.dataTransfer.effectAllowed = 'move';
+  e.target.addEventListener('dragend', () => e.target.classList.remove('dragging'), { once: true });
 }
 
 function kanbanDragOver(e) {
@@ -5464,7 +5488,9 @@ function getSelectedIds() {
   return Array.from(document.querySelectorAll('.sol-check:checked')).map(c => c.value);
 }
 
+let _bulkRunning = false;
 async function bulkApprove() {
+  if (_bulkRunning) return;
   const ids = getSelectedIds();
   if (!ids.length) return toast('Seleccioná al menos una solicitud', true);
   const pendientes = ids.filter(id => {
@@ -5473,6 +5499,7 @@ async function bulkApprove() {
   });
   if (!pendientes.length) return toast('Ninguna de las seleccionadas está pendiente de aprobación', true);
   if (!await asyncConfirm(`¿Aprobar ${pendientes.length} solicitudes en lote?`, { title: 'Aprobación masiva', confirmText: 'Aprobar' })) return;
+  _bulkRunning = true;
 
   let ok = 0;
   for (const id of pendientes) {
@@ -5486,11 +5513,13 @@ async function bulkApprove() {
     } catch(e) { console.warn('Bulk approve error:', e); }
   }
   await loadSolicitudes();
+  _bulkRunning = false;
   toast(`${ok} solicitudes aprobadas`);
   renderSolicitudesEnhanced(document.getElementById('tabContent'));
 }
 
 async function bulkMoveNext() {
+  if (_bulkRunning) return;
   const ids = getSelectedIds();
   if (!ids.length) return toast('Seleccioná al menos una solicitud', true);
   // Group by current status
@@ -5512,7 +5541,7 @@ async function bulkMoveNext() {
   if (!nextStatus || ['Completado','Rechazada','Eliminada'].includes(nextStatus)) return toast('No se puede avanzar desde este estado en lote', true);
 
   if (!await asyncConfirm(`¿Mover ${groups[currentStatus].length} solicitudes de "${currentStatus}" a "${nextStatus}"?`, { title: 'Avance masivo' })) return;
-
+  _bulkRunning = true;
   let ok = 0;
   for (const s of groups[currentStatus]) {
     try {
@@ -5524,6 +5553,7 @@ async function bulkMoveNext() {
     } catch(e) { console.warn('Bulk move error:', e); }
   }
   await loadSolicitudes();
+  _bulkRunning = false;
   toast(`${ok} solicitudes movidas a "${nextStatus}"`);
   renderSolicitudesEnhanced(document.getElementById('tabContent'));
 }
