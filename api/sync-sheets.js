@@ -146,7 +146,27 @@ async function syncStockSistema(sheets, config, supabase) {
   // Don't insert "Sin asignar" products — only update existing ones with marca
   const notMatched = updates.length - matched.size;
 
-  return { updated: updatedCount, matched_codes: matched.size, not_matched: notMatched, total_codes: updates.length };
+  // ALSO update stock_insumos.stock_fisico with real stock from this sheet
+  // The insumo codes should match product codes in the stock pivot table
+  let insumoUpdated = 0;
+  try {
+    const { data: insumos } = await supabase.from('stock_insumos').select('id, codigo');
+    for (const ins of (insumos || [])) {
+      const stk = stockMap[ins.codigo];
+      if (stk) {
+        const { error } = await supabase
+          .from('stock_insumos')
+          .update({ stock_fisico: stk.stock_actual, stock_disponible: stk.stock_actual, fecha_sync: stk.fecha_sync })
+          .eq('id', ins.id);
+        if (!error) insumoUpdated++;
+      }
+    }
+    console.log(`Stock Sistema: updated ${insumoUpdated} insumos stock from pivot data`);
+  } catch (e) {
+    console.warn('Error updating stock_insumos from stock pivot:', e.message);
+  }
+
+  return { updated: updatedCount, insumos_updated: insumoUpdated, matched_codes: matched.size, not_matched: notMatched, total_codes: updates.length };
 }
 
 // ─── SYNC 2: Ventas/Stock from "Datos" flat table ───
