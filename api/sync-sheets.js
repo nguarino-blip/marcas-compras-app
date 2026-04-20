@@ -357,7 +357,7 @@ async function syncForecast(sheets, config, supabase) {
 }
 
 // ─── SYNC 4: BOM (BASE BRUTA — producto → insumos) ───
-async function syncBOM(sheets, config, supabase) {
+async function syncBOM(sheets, config, supabase, realStockMap) {
   if (!config.sheet_id_bom) return { updated: 0, skipped: 'No sheet_id_bom configured' };
 
   // Try configured sheet name, then fallbacks
@@ -493,14 +493,17 @@ async function syncBOM(sheets, config, supabase) {
       else if (tipoGlobal === 'tapa' || tipoGlobal === 'collar' || tipoGlobal === 'valvula') leadTimeDias = 120;
       else if (tipoGlobal === 'etiqueta') leadTimeDias = 30;
 
-      // Store insumo stock — if same codigo appears multiple times, keep the one with higher stock
-      if (!insumoStock[codigo] || stockFisico > (insumoStock[codigo].stock_fisico || 0)) {
+      // Store insumo stock — use real stock from pivot table if available, fallback to BOM sheet value
+      const realStk = realStockMap && realStockMap[codigo] ? realStockMap[codigo].stock_actual : null;
+      const finalStockFisico = realStk != null ? realStk : stockFisico;
+      const finalDisponible = realStk != null ? realStk : disponible;
+      if (!insumoStock[codigo] || finalStockFisico > (insumoStock[codigo].stock_fisico || 0)) {
         insumoStock[codigo] = {
           codigo: codigo,
           detalle: detalle.substring(0, 200),
           categoria: categoria,
-          stock_fisico: stockFisico,
-          stock_disponible: disponible,
+          stock_fisico: finalStockFisico,
+          stock_disponible: finalDisponible,
           tipo_insumo_global: tipoGlobal,
           lead_time_dias: leadTimeDias,
           fecha_sync: new Date().toISOString(),
@@ -709,49 +712,19 @@ export default async function handler(req, res) {
     await supabase.rpc('recalculate_cobertura');
 
     // Step 3: Sync BOM + Producciones in parallel
+    // Pass stockMap to syncBOM so it writes real stock values directly into stock_insumos
+    // (avoids needing a separate update step that would cause timeout)
+    const realStockMap = stockSistemaRes._stockMap || null;
+    if (stockSistemaRes._stockMap) delete stockSistemaRes._stockMap;
     const [bomResult, prodResult] = await Promise.allSettled([
-      syncBOM(sheets, config, supabase),
+      syncBOM(sheets, config, supabase, realStockMap),
       syncProducciones(sheets, config, supabase),
     ]);
 
     const bomRes = bomResult.status === 'fulfilled' ? bomResult.value : { error: bomResult.reason?.message };
     const prodRes = prodResult.status === 'fulfilled' ? prodResult.value : { error: prodResult.reason?.message };
 
-    // Step 4: AFTER BOM sync (which deletes+recreates stock_insumos), update stock_fisico with real stock
-    // This MUST run after syncBOM because syncBOM wipes stock_insumos and re-inserts with stale values
-    // Uses batched parallel updates (50 at a time) to avoid Vercel timeout
-    let insumoStockUpdate = { updated: 0 };
-    const stockMap = stockSistemaRes._stockMap;
-    if (stockMap && Object.keys(stockMap).length > 0) {
-      try {
-        const { data: insumos } = await supabase.from('stock_insumos').select('id, codigo');
-        const toUpdate = [];
-        for (const ins of (insumos || [])) {
-          const stk = stockMap[ins.codigo];
-          if (stk) toUpdate.push({ id: ins.id, stock_actual: stk.stock_actual, fecha_sync: stk.fecha_sync });
-        }
-        let insumoUpdated = 0;
-        const BATCH = 50;
-        for (let i = 0; i < toUpdate.length; i += BATCH) {
-          const batch = toUpdate.slice(i, i + BATCH);
-          const results = await Promise.all(batch.map(u =>
-            supabase.from('stock_insumos')
-              .update({ stock_fisico: u.stock_actual, stock_disponible: u.stock_actual, fecha_sync: u.fecha_sync })
-              .eq('id', u.id)
-          ));
-          insumoUpdated += results.filter(r => !r.error).length;
-        }
-        insumoStockUpdate = { updated: insumoUpdated, total_insumos: (insumos || []).length, matched: toUpdate.length };
-        console.log(`Post-BOM: updated ${insumoUpdated}/${toUpdate.length} insumos (from ${(insumos || []).length} total)`);
-      } catch (e) {
-        insumoStockUpdate = { error: e.message };
-        console.warn('Error updating stock_insumos post-BOM:', e.message);
-      }
-    }
-    // Clean internal data from response
-    if (stockSistemaRes._stockMap) delete stockSistemaRes._stockMap;
-
-    const allErrors = [stockSistemaRes.error, stockRes.error, forecastRes.error, bomRes.error, prodRes.error, insumoStockUpdate.error].filter(Boolean);
+    const allErrors = [stockSistemaRes.error, stockRes.error, forecastRes.error, bomRes.error, prodRes.error].filter(Boolean);
     const totalUpdated = (stockSistemaRes.updated || 0) + (stockRes.updated || 0) + (forecastRes.updated || 0);
 
     await supabase.from('stock_sync_log').insert({
@@ -768,7 +741,6 @@ export default async function handler(req, res) {
       forecast: forecastRes,
       bom: bomRes,
       producciones: prodRes,
-      insumo_stock_update: insumoStockUpdate,
     });
   } catch (err) {
     console.error('Sync sheets error:', err);
