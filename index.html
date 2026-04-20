@@ -195,6 +195,50 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);}
 }
 .hidden{display:none!important;}
 .loading{text-align:center;padding:40px;color:var(--txt2);}
+
+/* Progress bar */
+.progress-bar{height:6px;background:var(--bg3);border-radius:3px;margin-top:8px;overflow:hidden;}
+.progress-bar .fill{height:100%;border-radius:3px;transition:width .3s ease;background:linear-gradient(90deg,var(--gold),var(--green));}
+
+/* Realtime notification badge */
+.realtime-dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+.notif-toast{position:fixed;top:20px;right:20px;background:var(--bg2);border:1px solid var(--gold);color:var(--txt);padding:12px 20px;border-radius:8px;font-size:13px;z-index:300;animation:slideIn .3s ease;cursor:pointer;max-width:350px;}
+.notif-toast .notif-title{font-weight:700;color:var(--gold);margin-bottom:2px;}
+
+/* Kanban board */
+.kanban-board{display:flex;gap:12px;overflow-x:auto;padding-bottom:16px;min-height:400px;}
+.kanban-col{min-width:240px;max-width:280px;flex-shrink:0;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;}
+.kanban-col-header{font-size:12px;font-weight:700;text-transform:uppercase;color:var(--txt2);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;}
+.kanban-col-header .count{background:var(--bg3);padding:2px 8px;border-radius:10px;font-size:11px;}
+.kanban-col-body{flex:1;min-height:60px;display:flex;flex-direction:column;gap:8px;}
+.kanban-col-body.drag-over{background:rgba(240,192,64,.08);border-radius:6px;}
+.kanban-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 12px;cursor:grab;transition:all .2s;font-size:12px;}
+.kanban-card:hover{border-color:var(--gold);transform:translateY(-1px);}
+.kanban-card.dragging{opacity:.5;transform:rotate(2deg);}
+.kanban-card .kc-title{font-weight:600;color:var(--txt);margin-bottom:4px;font-size:13px;}
+.kanban-card .kc-meta{color:var(--txt2);font-size:11px;}
+
+/* Bulk actions toolbar */
+.bulk-toolbar{background:var(--bg2);border:1px solid var(--gold);border-radius:8px;padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;animation:slideIn .2s ease;}
+.bulk-toolbar .bulk-count{font-size:13px;color:var(--gold);font-weight:700;}
+
+/* View toggle buttons */
+.view-toggle{display:flex;gap:4px;background:var(--bg3);border-radius:6px;padding:3px;}
+.view-toggle button{background:transparent;color:var(--txt2);border:none;padding:6px 12px;border-radius:4px;font-size:12px;cursor:pointer;transition:all .2s;}
+.view-toggle button.active{background:var(--gold);color:#000;font-weight:700;}
+
+/* Filter row enhanced */
+.filter-row{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center;}
+.filter-row input,.filter-row select{max-width:200px;font-size:13px;padding:7px 10px;}
+
+/* Role dashboard cards */
+.role-kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px;}
+.role-kpi-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px;text-align:center;cursor:pointer;transition:all .2s;}
+.role-kpi-card:hover{border-color:var(--gold);transform:translateY(-2px);}
+.role-kpi-card .rkpi-num{font-size:32px;font-weight:800;}
+.role-kpi-card .rkpi-label{font-size:12px;color:var(--txt2);margin-top:4px;}
+.role-kpi-card .rkpi-sub{font-size:11px;color:var(--txt2);margin-top:2px;}
 </style>
 </head>
 <body>
@@ -250,6 +294,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);}
     <div class="tabs" id="mainTabs">
       <div class="tab active" data-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</div>
       <div class="tab" data-tab="solicitudes" onclick="switchTab('solicitudes')">Solicitudes</div>
+      <div class="tab" data-tab="kanban" onclick="switchTab('kanban')">📋 Kanban</div>
       <div class="tab" data-tab="aprobaciones" onclick="switchTab('aprobaciones')">Aprobaciones</div>
       <div class="tab" data-tab="comex" onclick="switchTab('comex')">Comex</div>
       <div class="tab" data-tab="metricas" onclick="switchTab('metricas')">Métricas</div>
@@ -567,6 +612,7 @@ async function initApp(user) {
 
   await loadSolicitudes();
   startDataRefresh();
+  startRealtimeSubscription();
   switchTab('dashboard');
 }
 
@@ -750,7 +796,7 @@ async function switchTab(tab) {
   const c = document.getElementById('tabContent');
   // Restore container width for non-MRP tabs
   const container = c.closest('.container');
-  if (container && tab !== 'mrp' && tab !== 'sop') { container.style.maxWidth = '1200px'; container.style.padding = '20px'; }
+  if (container && tab !== 'mrp' && tab !== 'sop' && tab !== 'kanban') { container.style.maxWidth = '1200px'; container.style.padding = '20px'; }
   // Verify session is still valid before rendering data tabs
   if (['metricas','mrp','sop','admin'].includes(tab)) {
     const { data: { session } } = await sb.auth.getSession();
@@ -763,6 +809,7 @@ async function switchTab(tab) {
   switch (tab) {
     case 'dashboard': renderDashboard(c); break;
     case 'solicitudes': renderSolicitudes(c); break;
+    case 'kanban': renderKanban(c); break;
     case 'aprobaciones': renderAprobaciones(c); break;
     case 'comex': renderComex(c); break;
     case 'metricas': renderMetricas(c, myVersion); break;
@@ -859,6 +906,9 @@ function renderDashboard(c) {
         <div class="tipo-desc">Reposición de stock e insumos recurrentes</div>
       </div>
     </div>` : ''}
+
+    <!-- ROLE-SPECIFIC KPI DASHBOARD -->
+    ${renderDashboardRole()}
 
     <!-- ROLE-SPECIFIC QUICK VIEW -->
     ${getRoleQuickView()}
@@ -1018,7 +1068,7 @@ function showDashboardList(type) {
 
 function solicitudCard(s, showCheckbox = false) {
   return `<div class="card" style="cursor:pointer;display:flex;align-items:start;gap:10px;">
-    ${showCheckbox && canDelete() ? `<input type="checkbox" class="sol-check" value="${s.id}" onclick="event.stopPropagation()" style="margin-top:4px;min-width:16px;">` : ''}
+    ${showCheckbox && canDelete() ? `<input type="checkbox" class="sol-check" value="${s.id}" onclick="event.stopPropagation();updateBulkToolbar()" style="margin-top:4px;min-width:16px;">` : ''}
     <div onclick="openSolicitud('${s.id}')" style="flex:1;">
       <div style="display:flex;justify-content:space-between;align-items:start;">
         <h3>#${s.numero} — ${s.nombre}</h3>
@@ -1027,6 +1077,7 @@ function solicitudCard(s, showCheckbox = false) {
       <div class="meta">${s.marca} · ${s.tipo}${s.descripcion?.includes('[Origen: Compra Local]') ? ' · <span style="color:var(--green);">LOCAL</span>' : ''}</div>
       <div class="meta">Creado por: ${s.profiles?.full_name || 'N/A'} · ${fmtDate(s.created_at?.split('T')[0])}</div>
       ${s.fecha_lanzamiento ? `<div class="meta">Lanzamiento: ${fmtDate(s.fecha_lanzamiento)}</div>` : ''}
+      ${progressBarHtml(s.status)}
     </div>
   </div>`;
 }
@@ -1035,52 +1086,14 @@ function solicitudCard(s, showCheckbox = false) {
 // SOLICITUDES LIST
 // =============================================
 function renderSolicitudes(c) {
-  c.innerHTML = `
-    ${canCreateSolicitud() ? `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-      <button class="btn-gold" onclick="openNewSolicitud('Nuevos desarrollos')">+ Nuevos desarrollos</button>
-      <button class="btn-violet" onclick="openNewSolicitud('Cambio de proveedor')">+ Cambio proveedor</button>
-      <button class="btn-blue" onclick="openNewSolicitud('Traspaso compra local al exterior')">+ Traspaso exterior</button>
-      <button class="btn-green" onclick="openNewSolicitud('Compras regulares')">+ Compras regulares</button>
-      <button class="btn-outline" onclick="openNewSolicitud('Adaptación de desarrollo')">+ Adaptación</button>
-      <button class="btn-outline" onclick="openNewSolicitud('Set, Cofres y Otros')">+ Set/Cofres</button>
-    </div>` : ''}
-    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
-      <input type="text" id="searchSol" placeholder="Buscar..." style="max-width:250px;" oninput="filterSolicitudes()">
-      <select id="filterStatus" onchange="filterSolicitudes()" style="max-width:220px;">
-        <option value="">Todos los estados</option>
-        ${STATUS_LIST.map(s => `<option value="${s}">${s}</option>`).join('')}
-      </select>
-      <select id="filterMarca" onchange="filterSolicitudes()" style="max-width:180px;">
-        <option value="">Todas las marcas</option>
-        ${MARCAS.map(m => `<option value="${m}">${m}</option>`).join('')}
-      </select>
-    </div>
-    ${canDelete() ? `<div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
-      <label style="font-size:12px;color:var(--txt2);display:flex;align-items:center;gap:4px;">
-        <input type="checkbox" id="selectAllSol" onchange="toggleSelectAll(this.checked)"> Seleccionar todo
-      </label>
-      <button class="btn-red btn-sm" onclick="eliminarMasivo()">🗑 Eliminar seleccionadas</button>
-    </div>` : ''}
-    <div id="solList" class="grid grid-2">
-      ${solicitudes.filter(s => s.status !== 'Eliminada').map(s => solicitudCard(s, true)).join('')}
-    </div>`;
+  renderSolicitudesEnhanced(c);
 }
 
 function toggleSelectAll(checked) {
   document.querySelectorAll('.sol-check').forEach(c => c.checked = checked);
 }
 
-function filterSolicitudes() {
-  const q = (document.getElementById('searchSol')?.value || '').toLowerCase();
-  const st = document.getElementById('filterStatus')?.value || '';
-  const mk = document.getElementById('filterMarca')?.value || '';
-  let filtered = solicitudes;
-  if (q) filtered = filtered.filter(s => s.nombre.toLowerCase().includes(q) || String(s.numero).includes(q));
-  if (st) filtered = filtered.filter(s => s.status === st);
-  else filtered = filtered.filter(s => s.status !== 'Eliminada'); // Hide eliminated by default
-  if (mk) filtered = filtered.filter(s => s.marca === mk);
-  document.getElementById('solList').innerHTML = filtered.map(s => solicitudCard(s, true)).join('') || '<p style="color:var(--txt2)">Sin resultados</p>';
-}
+function filterSolicitudes() { filterSolicitudesAdv(); }
 
 // =============================================
 // APROBACIONES
@@ -3443,18 +3456,25 @@ async function submitSolicitud() {
   }
   extraDesc += `\n[Origen: ${origenCompra === 'local' ? 'Compra Local' : 'Exterior (importación)'}]`;
 
-  // Create solicitud
-  const { data: sol, error } = await sb.from('solicitudes').insert({
+  // Create solicitud - build insert object dynamically
+  const insertObj = {
     tipo, marca, nombre, descripcion: fullDesc + extraDesc,
     fecha_sell_in: sellIn, fecha_lanzamiento: lanzamiento,
     costo_objetivo: costo, cotizacion_responsable: cotiz,
     cotizacion_responsable_nombre: cotizNombre,
     links_referencia: links,
-    notas: codigosInternos.length ? `[CODIGOS] ${codigosInternos.join(', ')}` : null,
     status: 'Pendiente aprobación Compras',
     created_by: currentUser.id
-  }).select().single();
-
+  };
+  // Try with notas column first; if it fails (column missing), retry without
+  if (codigosInternos.length) insertObj.notas = `[CODIGOS] ${codigosInternos.join(', ')}`;
+  let sol, error;
+  ({ data: sol, error } = await sb.from('solicitudes').insert(insertObj).select().single());
+  if (error && error.message?.includes('notas')) {
+    delete insertObj.notas;
+    if (codigosInternos.length) insertObj.descripcion += `\n[CODIGOS] ${codigosInternos.join(', ')}`;
+    ({ data: sol, error } = await sb.from('solicitudes').insert(insertObj).select().single());
+  }
   if (error) return toast('Error: ' + error.message, true);
 
   // Create items
@@ -3958,6 +3978,13 @@ function renderHistory(history) {
 // =============================================
 // WORKFLOW ACTIONS
 // =============================================
+// Safe notas update: silently fails if column doesn't exist
+async function safeUpdateNotas(id, notasValue) {
+  try {
+    await sb.from('solicitudes').update({ notas: notasValue }).eq('id', id);
+  } catch(e) { console.warn('notas column update skipped:', e.message); }
+}
+
 async function updateStatus(id, newStatus, evento, detalle, emailTo, emailSubject, emailBody) {
   const s = solicitudes.find(x => x.id === id);
   const oldStatus = s?.status;
@@ -4039,7 +4066,7 @@ async function propuestaProveedores(id) {
 
   // Save proveedores in notas and historial
   const notasActuales = s.notas || '';
-  await sb.from('solicitudes').update({ notas: notasActuales + `\n[PROVEEDORES] ${proveedores.join(', ')}` }).eq('id', id);
+  await safeUpdateNotas(id, notasActuales + `\n[PROVEEDORES] ${proveedores.join(', ')}`);
 
   await completePasoByName(id, 'Propuesta de proveedores');
   await updateStatus(id, 'Cotización y negociación', `Proveedores propuestos: ${proveedores.join(', ')}`, null,
@@ -4083,7 +4110,7 @@ async function despacharMuestras(id) {
   // Also store in notas for easy retrieval
   const notasActuales = s.notas || '';
   const notasTracking = `\n[TRACKING MUESTRAS] Courier: ${courier || 'DHL'} | Tracking: ${tracking} | Despacho: ${despacho}${eta ? ' | ETA: ' + eta : ''}`;
-  await sb.from('solicitudes').update({ notas: notasActuales + notasTracking }).eq('id', id);
+  await safeUpdateNotas(id, notasActuales + notasTracking);
 
   await updateStatus(id, 'Muestras en tránsito', 'Muestras despachadas - en camino', null,
     [s.profiles?.email, 'nmaggi@cdimex.com.ar'].filter(Boolean),
@@ -4232,7 +4259,7 @@ async function submitRechazoMuestra(solId) {
     if (fotos.length) {
       const s = solicitudes.find(x => x.id === solId);
       const notasAct = s?.notas || '';
-      await sb.from('solicitudes').update({ notas: notasAct + `\n[RECHAZO FOTOS] ${fotos.join(' | ')}` }).eq('id', solId);
+      await safeUpdateNotas(solId, notasAct + `\n[RECHAZO FOTOS] ${fotos.join(' | ')}`);
     }
 
     const s = solicitudes.find(x => x.id === solId);
@@ -4261,7 +4288,7 @@ async function despacharMuestrasTecnicas(id) {
   const s = solicitudes.find(x => x.id === id);
   const notasActuales = s.notas || '';
   const notasTracking = `\n[TRACKING MUESTRAS TEC] Courier: ${courier || 'DHL'} | Tracking: ${tracking} | Despacho: ${despacho || 'N/A'}${eta ? ' | ETA: ' + eta : ''}`;
-  await sb.from('solicitudes').update({ notas: notasActuales + notasTracking }).eq('id', id);
+  await safeUpdateNotas(id, notasActuales + notasTracking);
 
   await sb.from('historial').insert({
     solicitud_id: id, actor_id: currentUser.id,
@@ -4509,7 +4536,7 @@ async function addDisenoFinal(solId) {
   if (!url) return toast('Pegá la URL del archivo', true);
   const s = solicitudes.find(x => x.id === solId);
   const notasAct = s?.notas || '';
-  await sb.from('solicitudes').update({ notas: notasAct + `\n[DISENO] ${url}` }).eq('id', solId);
+  await safeUpdateNotas(solId, notasAct + `\n[DISENO] ${url}`);
   await sb.from('historial').insert({
     solicitud_id: solId, actor_id: currentUser.id,
     evento: 'Diseño final adjuntado',
@@ -4903,7 +4930,6 @@ function startDataRefresh() {
     try {
       const { data: { session } } = await sb.auth.getSession();
       if (!session) {
-        // Session expired — force re-login
         clearInterval(_dataRefreshInterval);
         _dataRefreshInterval = null;
         currentUser = null; currentProfile = null;
@@ -4913,7 +4939,6 @@ function startDataRefresh() {
         return;
       }
       await loadSolicitudes();
-      // If on dashboard, refresh it
       if (currentTab === 'dashboard') {
         const c = document.getElementById('tabContent');
         if (c) renderDashboard(c);
@@ -4921,8 +4946,478 @@ function startDataRefresh() {
     } catch (e) {
       console.warn('Data refresh error:', e);
     }
-  }, 300000); // 5 minutes
+  }, 300000);
 }
+
+// =============================================
+// 1. REALTIME NOTIFICATIONS (Supabase Realtime)
+// =============================================
+let _realtimeChannel = null;
+function startRealtimeSubscription() {
+  if (_realtimeChannel) _realtimeChannel.unsubscribe();
+  _realtimeChannel = sb.channel('solicitudes-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'solicitudes' }, async (payload) => {
+      const oldData = solicitudes.find(s => s.id === payload.old?.id);
+      await loadSolicitudes();
+      // Show notification
+      if (payload.eventType === 'UPDATE' && payload.new.status !== oldData?.status) {
+        showRealtimeNotif(payload.new, oldData?.status, payload.new.status);
+      }
+      // Refresh current tab view
+      const c = document.getElementById('tabContent');
+      if (c && currentTab === 'dashboard') renderDashboard(c);
+      else if (c && currentTab === 'solicitudes') renderSolicitudes(c);
+      else if (c && currentTab === 'kanban') renderKanban(c);
+      else if (c && currentTab === 'aprobaciones') renderAprobaciones(c);
+    })
+    .subscribe();
+}
+
+function showRealtimeNotif(sol, fromStatus, toStatus) {
+  // Don't notify about own actions
+  if (sol.updated_by === currentUser?.id) return;
+  const existing = document.querySelector('.notif-toast');
+  if (existing) existing.remove();
+  const n = document.createElement('div');
+  n.className = 'notif-toast';
+  n.innerHTML = `<div class="notif-title"><span class="realtime-dot"></span>Actualización en tiempo real</div>
+    <div>#${sol.numero || '?'} ${sol.nombre || ''} → ${toStatus}</div>`;
+  n.onclick = () => { n.remove(); if (sol.id) openSolicitud(sol.id); };
+  document.body.appendChild(n);
+  setTimeout(() => n.remove(), 6000);
+}
+
+// =============================================
+// 2. PROGRESS BAR (calculates step progress)
+// =============================================
+function getProgressPercent(status) {
+  const idx = STATUS_LIST.indexOf(status);
+  if (idx < 0) return 100;
+  // Exclude terminal states (Completado=100, Rechazada/Eliminada=0)
+  if (status === 'Completado') return 100;
+  if (status === 'Rechazada' || status === 'Eliminada') return 0;
+  // Non-terminal states map from ~5% to ~95%
+  const totalSteps = STATUS_LIST.length - 3; // exclude terminal states
+  return Math.round(((idx + 1) / totalSteps) * 95);
+}
+
+function progressBarHtml(status) {
+  const pct = getProgressPercent(status);
+  const color = pct >= 90 ? 'var(--green)' : pct >= 50 ? 'var(--gold)' : 'var(--blue)';
+  return `<div class="progress-bar"><div class="fill" style="width:${pct}%;background:${color};"></div></div>`;
+}
+
+// =============================================
+// 3. ENHANCED FILTERS (already has basic, add tipo + date)
+// =============================================
+function renderSolicitudesEnhanced(c) {
+  c.innerHTML = `
+    ${canCreateSolicitud() ? `<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+      <button class="btn-gold" onclick="openNewSolicitud('Nuevos desarrollos')">+ Nuevos desarrollos</button>
+      <button class="btn-violet" onclick="openNewSolicitud('Cambio de proveedor')">+ Cambio proveedor</button>
+      <button class="btn-blue" onclick="openNewSolicitud('Traspaso compra local al exterior')">+ Traspaso exterior</button>
+      <button class="btn-green" onclick="openNewSolicitud('Compras regulares')">+ Compras regulares</button>
+      <button class="btn-outline" onclick="openNewSolicitud('Adaptación de desarrollo')">+ Adaptación</button>
+      <button class="btn-outline" onclick="openNewSolicitud('Set, Cofres y Otros')">+ Set/Cofres</button>
+    </div>` : ''}
+    <div class="filter-row">
+      <input type="text" id="searchSol" placeholder="🔍 Buscar por nombre o #..." style="max-width:220px;" oninput="filterSolicitudesAdv()">
+      <select id="filterStatus" onchange="filterSolicitudesAdv()" style="max-width:200px;">
+        <option value="">Todos los estados</option>
+        ${STATUS_LIST.map(s => `<option value="${s}">${s}</option>`).join('')}
+      </select>
+      <select id="filterMarca" onchange="filterSolicitudesAdv()" style="max-width:160px;">
+        <option value="">Todas las marcas</option>
+        ${MARCAS.map(m => `<option value="${m}">${m}</option>`).join('')}
+      </select>
+      <select id="filterTipo" onchange="filterSolicitudesAdv()" style="max-width:180px;">
+        <option value="">Todos los tipos</option>
+        <option>Nuevos desarrollos</option>
+        <option>Cambio de proveedor</option>
+        <option>Traspaso compra local al exterior</option>
+        <option>Compras regulares</option>
+        <option>Adaptación de desarrollo</option>
+        <option>Set, Cofres y Otros</option>
+      </select>
+      <input type="date" id="filterDateFrom" onchange="filterSolicitudesAdv()" style="max-width:150px;" title="Desde fecha">
+      <input type="date" id="filterDateTo" onchange="filterSolicitudesAdv()" style="max-width:150px;" title="Hasta fecha">
+      <button class="btn-outline btn-sm" onclick="clearFilters()">Limpiar</button>
+    </div>
+    ${canDelete() ? `<div id="bulkToolbar" class="bulk-toolbar hidden">
+      <span class="bulk-count"><span id="bulkCount">0</span> seleccionadas</span>
+      ${canApprove() ? `<button class="btn-green btn-sm" onclick="bulkApprove()">✓ Aprobar</button>` : ''}
+      ${canApprove() ? `<button class="btn-gold btn-sm" onclick="bulkMoveNext()">→ Avanzar estado</button>` : ''}
+      <button class="btn-red btn-sm" onclick="eliminarMasivo()">🗑 Eliminar</button>
+      <button class="btn-outline btn-sm" onclick="deselectAll()">✕ Deseleccionar</button>
+    </div>` : ''}
+    ${canDelete() ? `<div style="margin-bottom:8px;"><label style="font-size:12px;color:var(--txt2);display:flex;align-items:center;gap:4px;">
+      <input type="checkbox" id="selectAllSol" onchange="toggleSelectAll(this.checked)"> Seleccionar todo
+    </label></div>` : ''}
+    <div id="solList" class="grid grid-2">
+      ${solicitudes.filter(s => s.status !== 'Eliminada').map(s => solicitudCardEnhanced(s, true)).join('')}
+    </div>
+    <div id="solCount" style="margin-top:12px;font-size:12px;color:var(--txt2);"></div>`;
+  updateSolCount();
+}
+
+function solicitudCardEnhanced(s, showCheckbox = false) {
+  return `<div class="card" style="cursor:pointer;display:flex;align-items:start;gap:10px;">
+    ${showCheckbox && canDelete() ? `<input type="checkbox" class="sol-check" value="${s.id}" onclick="event.stopPropagation();updateBulkToolbar()" style="margin-top:4px;min-width:16px;">` : ''}
+    <div onclick="openSolicitud('${s.id}')" style="flex:1;">
+      <div style="display:flex;justify-content:space-between;align-items:start;">
+        <h3>#${s.numero} — ${s.nombre}</h3>
+        ${pill(s.status)}
+      </div>
+      <div class="meta">${s.marca} · ${s.tipo}${s.descripcion?.includes('[Origen: Compra Local]') ? ' · <span style="color:var(--green);">LOCAL</span>' : ''}</div>
+      <div class="meta">Creado por: ${s.profiles?.full_name || 'N/A'} · ${fmtDate(s.created_at?.split('T')[0])}</div>
+      ${s.fecha_lanzamiento ? `<div class="meta">Lanzamiento: ${fmtDate(s.fecha_lanzamiento)}</div>` : ''}
+      ${progressBarHtml(s.status)}
+    </div>
+  </div>`;
+}
+
+function filterSolicitudesAdv() {
+  const q = (document.getElementById('searchSol')?.value || '').toLowerCase();
+  const st = document.getElementById('filterStatus')?.value || '';
+  const mk = document.getElementById('filterMarca')?.value || '';
+  const tp = document.getElementById('filterTipo')?.value || '';
+  const df = document.getElementById('filterDateFrom')?.value || '';
+  const dt = document.getElementById('filterDateTo')?.value || '';
+  let filtered = solicitudes;
+  if (q) filtered = filtered.filter(s => s.nombre.toLowerCase().includes(q) || String(s.numero).includes(q) || (s.marca||'').toLowerCase().includes(q));
+  if (st) filtered = filtered.filter(s => s.status === st);
+  else filtered = filtered.filter(s => s.status !== 'Eliminada');
+  if (mk) filtered = filtered.filter(s => s.marca === mk);
+  if (tp) filtered = filtered.filter(s => s.tipo === tp);
+  if (df) filtered = filtered.filter(s => (s.created_at || '') >= df);
+  if (dt) filtered = filtered.filter(s => (s.created_at || '').substring(0,10) <= dt);
+  document.getElementById('solList').innerHTML = filtered.map(s => solicitudCardEnhanced(s, true)).join('') || '<p style="color:var(--txt2)">Sin resultados</p>';
+  updateSolCount(filtered.length);
+}
+
+function clearFilters() {
+  ['searchSol','filterStatus','filterMarca','filterTipo','filterDateFrom','filterDateTo'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  filterSolicitudesAdv();
+}
+
+function updateSolCount(n) {
+  const el = document.getElementById('solCount');
+  if (el) el.textContent = `Mostrando ${n !== undefined ? n : solicitudes.filter(s=>s.status!=='Eliminada').length} solicitudes`;
+}
+
+function updateBulkToolbar() {
+  const checked = document.querySelectorAll('.sol-check:checked');
+  const bar = document.getElementById('bulkToolbar');
+  const cnt = document.getElementById('bulkCount');
+  if (!bar) return;
+  if (checked.length > 0) {
+    bar.classList.remove('hidden');
+    if (cnt) cnt.textContent = checked.length;
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+
+function deselectAll() {
+  document.querySelectorAll('.sol-check').forEach(c => c.checked = false);
+  updateBulkToolbar();
+}
+
+// =============================================
+// 4. DASHBOARD PERSONALIZADO POR ROL
+// =============================================
+function renderDashboardRole() {
+  const activas = solicitudes.filter(s => !['Completado','Rechazada','Eliminada'].includes(s.status));
+
+  if (isMarcas()) {
+    const mySols = activas.filter(s => canActOnBrand(s.marca));
+    const waitingMe = mySols.filter(s => s.status.includes('Marcas'));
+    const waitingOthers = mySols.filter(s => !s.status.includes('Marcas'));
+    const overdue = mySols.filter(s => {
+      const pasos = allPendingPasos.filter(p => p.solicitud_id === s.id);
+      return pasos.some(p => daysUntil(p.fecha_objetivo) !== null && daysUntil(p.fecha_objetivo) < 0);
+    });
+    return `<div class="role-kpi-grid">
+      <div class="role-kpi-card" onclick="showDashboardList('myPending')">
+        <div class="rkpi-num" style="color:var(--violet);">${waitingMe.length}</div>
+        <div class="rkpi-label">Esperan tu aprobación</div>
+      </div>
+      <div class="role-kpi-card">
+        <div class="rkpi-num" style="color:var(--blue);">${waitingOthers.length}</div>
+        <div class="rkpi-label">En proceso (otros equipos)</div>
+      </div>
+      <div class="role-kpi-card">
+        <div class="rkpi-num" style="color:var(--red);">${overdue.length}</div>
+        <div class="rkpi-label">Con retraso</div>
+      </div>
+      <div class="role-kpi-card">
+        <div class="rkpi-num" style="color:var(--gold);">${mySols.length}</div>
+        <div class="rkpi-label">Mis solicitudes activas</div>
+      </div>
+    </div>`;
+  }
+
+  if (isCompras() || canApprove()) {
+    const pendApproval = activas.filter(s => s.status === 'Pendiente aprobación Compras' || s.status === 'Info solicitada');
+    const inNegotiation = activas.filter(s => ['Propuesta de proveedores','Cotización y negociación'].includes(s.status));
+    const inSamples = activas.filter(s => ['Pedido de muestras','Muestras en tránsito','Esperando muestras técnicas'].includes(s.status));
+    const readyOC = activas.filter(s => s.status === 'Aprobada - Lista para OC');
+    const inProd = activas.filter(s => ['OC emitida','Comex - Proforma y pago','Orden de producción','En producción'].includes(s.status));
+    return `<div class="role-kpi-grid">
+      <div class="role-kpi-card" onclick="showDashboardList('pending')">
+        <div class="rkpi-num" style="color:var(--orange);">${pendApproval.length}</div>
+        <div class="rkpi-label">Pendientes aprobación</div>
+      </div>
+      <div class="role-kpi-card">
+        <div class="rkpi-num" style="color:var(--violet);">${inNegotiation.length}</div>
+        <div class="rkpi-label">En cotización</div>
+      </div>
+      <div class="role-kpi-card">
+        <div class="rkpi-num" style="color:var(--blue);">${inSamples.length}</div>
+        <div class="rkpi-label">En muestras</div>
+      </div>
+      <div class="role-kpi-card">
+        <div class="rkpi-num" style="color:var(--green);">${readyOC.length}</div>
+        <div class="rkpi-label">Listas para OC</div>
+        <div class="rkpi-sub">Acción inmediata</div>
+      </div>
+      <div class="role-kpi-card">
+        <div class="rkpi-num" style="color:var(--gold);">${inProd.length}</div>
+        <div class="rkpi-label">En producción/Comex</div>
+      </div>
+    </div>`;
+  }
+
+  if (isComex()) {
+    const myStates = activas.filter(s => ['OC emitida','Comex - Proforma y pago','Orden de producción','Booking shipping','En tránsito','Nacionalización'].includes(s.status));
+    const waitingPayment = activas.filter(s => s.status === 'Comex - Proforma y pago');
+    const inTransit = activas.filter(s => s.status === 'En tránsito');
+    return `<div class="role-kpi-grid">
+      <div class="role-kpi-card">
+        <div class="rkpi-num" style="color:var(--blue);">${myStates.length}</div>
+        <div class="rkpi-label">Total en Comex</div>
+      </div>
+      <div class="role-kpi-card">
+        <div class="rkpi-num" style="color:var(--orange);">${waitingPayment.length}</div>
+        <div class="rkpi-label">Proforma y pago</div>
+      </div>
+      <div class="role-kpi-card">
+        <div class="rkpi-num" style="color:var(--gold);">${inTransit.length}</div>
+        <div class="rkpi-label">En tránsito</div>
+      </div>
+    </div>`;
+  }
+
+  return '';
+}
+
+// =============================================
+// 5. KANBAN VIEW
+// =============================================
+const KANBAN_COLUMNS = [
+  { status: 'Pendiente aprobación Compras', short: 'Pend. Compras', color: 'var(--orange)' },
+  { status: 'Info solicitada', short: 'Info Solic.', color: 'var(--gold)' },
+  { status: 'Propuesta de proveedores', short: 'Proveedores', color: 'var(--violet)' },
+  { status: 'Cotización y negociación', short: 'Cotización', color: 'var(--violet)' },
+  { status: 'Pedido de muestras', short: 'Muestras', color: 'var(--blue)' },
+  { status: 'Muestras en tránsito', short: 'Muestras trán.', color: 'var(--blue)' },
+  { status: 'Pendiente aprobación estética (Marcas)', short: 'Aprob. Marcas', color: 'var(--violet)' },
+  { status: 'Esperando muestras técnicas', short: 'M. Técnicas', color: 'var(--blue)' },
+  { status: 'Pendiente aprobación Calidad', short: 'Calidad', color: 'var(--orange)' },
+  { status: 'Aprobada - Lista para OC', short: 'Lista OC', color: 'var(--green)' },
+  { status: 'OC emitida', short: 'OC Emitida', color: 'var(--green)' },
+  { status: 'Comex - Proforma y pago', short: 'Comex Pago', color: '#06b6d4' },
+  { status: 'Orden de producción', short: 'Producción', color: '#06b6d4' },
+  { status: 'En producción', short: 'En Prod.', color: '#06b6d4' },
+  { status: 'Inspección pre-embarque', short: 'Inspección', color: 'var(--orange)' },
+  { status: 'Booking shipping', short: 'Booking', color: '#06b6d4' },
+  { status: 'En tránsito', short: 'En Tránsito', color: '#06b6d4' },
+  { status: 'Nacionalización', short: 'Nacional.', color: '#06b6d4' }
+];
+
+function renderKanban(c) {
+  const container = c.closest('.container');
+  if (container) { container.style.maxWidth = '100%'; container.style.padding = '12px'; }
+
+  const active = solicitudes.filter(s => !['Completado','Rechazada','Eliminada'].includes(s.status));
+
+  c.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h3 style="color:var(--gold);">Vista Kanban — ${active.length} solicitudes activas</h3>
+      <select id="kanbanFilterMarca" onchange="renderKanbanCards()" style="max-width:180px;font-size:12px;">
+        <option value="">Todas las marcas</option>
+        ${MARCAS.map(m => `<option value="${m}">${m}</option>`).join('')}
+      </select>
+    </div>
+    <div class="kanban-board" id="kanbanBoard">
+      ${KANBAN_COLUMNS.map(col => {
+        const cards = active.filter(s => s.status === col.status);
+        return `<div class="kanban-col" data-status="${col.status}">
+          <div class="kanban-col-header">
+            <span style="color:${col.color};">${col.short}</span>
+            <span class="count">${cards.length}</span>
+          </div>
+          <div class="kanban-col-body" data-status="${col.status}"
+            ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event)">
+            ${cards.map(s => kanbanCard(s)).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function kanbanCard(s) {
+  return `<div class="kanban-card" draggable="true" data-id="${s.id}" data-status="${s.status}"
+    ondragstart="kanbanDragStart(event)" onclick="openSolicitud('${s.id}')">
+    <div class="kc-title">#${s.numero} ${s.nombre}</div>
+    <div class="kc-meta">${s.marca} · ${s.profiles?.full_name || ''}</div>
+    ${s.fecha_lanzamiento ? `<div class="kc-meta" style="color:var(--gold);">Lanz: ${fmtDate(s.fecha_lanzamiento)}</div>` : ''}
+  </div>`;
+}
+
+function renderKanbanCards() {
+  const marca = document.getElementById('kanbanFilterMarca')?.value || '';
+  let active = solicitudes.filter(s => !['Completado','Rechazada','Eliminada'].includes(s.status));
+  if (marca) active = active.filter(s => s.marca === marca);
+
+  KANBAN_COLUMNS.forEach(col => {
+    const body = document.querySelector(`.kanban-col-body[data-status="${col.status}"]`);
+    if (!body) return;
+    const cards = active.filter(s => s.status === col.status);
+    body.innerHTML = cards.map(s => kanbanCard(s)).join('');
+    // Update count
+    const header = body.closest('.kanban-col')?.querySelector('.count');
+    if (header) header.textContent = cards.length;
+  });
+}
+
+let _draggedSolId = null;
+function kanbanDragStart(e) {
+  _draggedSolId = e.target.dataset.id;
+  e.target.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+
+function kanbanDragOver(e) {
+  e.preventDefault();
+  e.currentTarget.classList.add('drag-over');
+}
+
+function kanbanDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+
+async function kanbanDrop(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const targetStatus = e.currentTarget.dataset.status;
+  if (!_draggedSolId || !targetStatus) return;
+
+  const sol = solicitudes.find(s => s.id === _draggedSolId);
+  if (!sol || sol.status === targetStatus) { _draggedSolId = null; return; }
+
+  // Validate: only admin/compras with approve can drag
+  if (!canApprove()) {
+    toast('Solo usuarios con permiso de aprobación pueden mover solicitudes via drag & drop', true);
+    _draggedSolId = null;
+    return;
+  }
+
+  // Validate: target must be the NEXT logical status or adjacent
+  const fromIdx = STATUS_LIST.indexOf(sol.status);
+  const toIdx = STATUS_LIST.indexOf(targetStatus);
+  if (toIdx < 0 || fromIdx < 0) { _draggedSolId = null; return; }
+
+  // Allow forward movement only (max 2 steps) or backward (max 1 step)
+  if (toIdx > fromIdx + 2 || toIdx < fromIdx - 1) {
+    toast('Solo podés mover al estado siguiente o anterior. Usá la vista detalle para saltos mayores.', true);
+    _draggedSolId = null;
+    return;
+  }
+
+  if (!confirm(`¿Mover #${sol.numero} "${sol.nombre}" de "${sol.status}" a "${targetStatus}"?`)) {
+    _draggedSolId = null;
+    return;
+  }
+
+  await updateStatus(_draggedSolId, targetStatus, `Estado cambiado via Kanban`, `${sol.status} → ${targetStatus}`);
+  _draggedSolId = null;
+  renderKanban(document.getElementById('tabContent'));
+}
+
+// =============================================
+// 6. BULK ACTIONS
+// =============================================
+function getSelectedIds() {
+  return Array.from(document.querySelectorAll('.sol-check:checked')).map(c => c.value);
+}
+
+async function bulkApprove() {
+  const ids = getSelectedIds();
+  if (!ids.length) return toast('Seleccioná al menos una solicitud', true);
+  const pendientes = ids.filter(id => {
+    const s = solicitudes.find(x => x.id === id);
+    return s?.status === 'Pendiente aprobación Compras';
+  });
+  if (!pendientes.length) return toast('Ninguna de las seleccionadas está pendiente de aprobación', true);
+  if (!confirm(`¿Aprobar ${pendientes.length} solicitudes en lote?`)) return;
+
+  let ok = 0;
+  for (const id of pendientes) {
+    try {
+      await completePasoByName(id, 'Aprobación Compras');
+      const { error } = await sb.from('solicitudes').update({ status: 'Propuesta de proveedores' }).eq('id', id);
+      if (!error) {
+        await sb.from('historial').insert({ solicitud_id: id, actor_id: currentUser.id, evento: 'Aprobada (lote)', detalle: 'Aprobación masiva por ' + currentProfile.full_name });
+        ok++;
+      }
+    } catch(e) { console.warn('Bulk approve error:', e); }
+  }
+  await loadSolicitudes();
+  toast(`${ok} solicitudes aprobadas`);
+  renderSolicitudesEnhanced(document.getElementById('tabContent'));
+}
+
+async function bulkMoveNext() {
+  const ids = getSelectedIds();
+  if (!ids.length) return toast('Seleccioná al menos una solicitud', true);
+  // Group by current status
+  const groups = {};
+  ids.forEach(id => {
+    const s = solicitudes.find(x => x.id === id);
+    if (s && !['Completado','Rechazada','Eliminada'].includes(s.status)) {
+      if (!groups[s.status]) groups[s.status] = [];
+      groups[s.status].push(s);
+    }
+  });
+  const statusKeys = Object.keys(groups);
+  if (statusKeys.length > 1) return toast('Para avanzar en lote, todas deben estar en el mismo estado', true);
+  if (!statusKeys.length) return toast('No hay solicitudes válidas seleccionadas', true);
+
+  const currentStatus = statusKeys[0];
+  const idx = STATUS_LIST.indexOf(currentStatus);
+  const nextStatus = STATUS_LIST[idx + 1];
+  if (!nextStatus || ['Completado','Rechazada','Eliminada'].includes(nextStatus)) return toast('No se puede avanzar desde este estado en lote', true);
+
+  if (!confirm(`¿Mover ${groups[currentStatus].length} solicitudes de "${currentStatus}" a "${nextStatus}"?`)) return;
+
+  let ok = 0;
+  for (const s of groups[currentStatus]) {
+    try {
+      const { error } = await sb.from('solicitudes').update({ status: nextStatus }).eq('id', s.id);
+      if (!error) {
+        await sb.from('historial').insert({ solicitud_id: s.id, actor_id: currentUser.id, evento: `Avanzado a ${nextStatus} (lote)` });
+        ok++;
+      }
+    } catch(e) { console.warn('Bulk move error:', e); }
+  }
+  await loadSolicitudes();
+  toast(`${ok} solicitudes movidas a "${nextStatus}"`);
+  renderSolicitudesEnhanced(document.getElementById('tabContent'));
+}
+
 main();
 </script>
 </body>
