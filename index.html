@@ -2807,7 +2807,7 @@ function openNewSolicitud(preselectedTipo) {
       <div class="field">
         <label>Marca</label>
         <select id="nsMarca" onchange="toggleOtraMarca();loadPlantillaProveedores()">
-          ${(isMarcas() && !canApprove() ? getMisMarcas() : MARCAS).map(m => `<option>${m}</option>`).join('')}
+          ${(isMarcas() && !canApprove() ? (getMisMarcas().length ? getMisMarcas() : MARCAS) : MARCAS).map(m => `<option>${m}</option>`).join('')}
           <option value="__otra__">Otra...</option>
         </select>
       </div>
@@ -3017,6 +3017,7 @@ function openNewSolicitud(preselectedTipo) {
   </div>`;
   document.body.appendChild(m);
   toggleTipoFields();
+  toggleOtraMarca();
 }
 
 function toggleOtraMarca() {
@@ -3649,6 +3650,10 @@ function renderActionBar(s, data) {
     case 'Info solicitada':
       if (isMarcas() && s.created_by === currentUser.id) {
         html += `<button class="btn-gold" onclick="resendInfo('${sid}')">Reenviar con info adicional</button>`;
+      }
+      if (canApprove() || isCompras()) {
+        html += `<button class="btn-green" onclick="approveCompras('${sid}')">Aprobar sin esperar info</button>`;
+        html += `<button class="btn-red" onclick="rejectSolicitud('${sid}')">Rechazar</button>`;
       }
       break;
     case 'Propuesta de proveedores':
