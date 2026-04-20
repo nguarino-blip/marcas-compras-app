@@ -719,24 +719,30 @@ export default async function handler(req, res) {
 
     // Step 4: AFTER BOM sync (which deletes+recreates stock_insumos), update stock_fisico with real stock
     // This MUST run after syncBOM because syncBOM wipes stock_insumos and re-inserts with stale values
+    // Uses batched parallel updates (50 at a time) to avoid Vercel timeout
     let insumoStockUpdate = { updated: 0 };
     const stockMap = stockSistemaRes._stockMap;
     if (stockMap && Object.keys(stockMap).length > 0) {
       try {
         const { data: insumos } = await supabase.from('stock_insumos').select('id, codigo');
-        let insumoUpdated = 0;
+        const toUpdate = [];
         for (const ins of (insumos || [])) {
           const stk = stockMap[ins.codigo];
-          if (stk) {
-            const { error } = await supabase
-              .from('stock_insumos')
-              .update({ stock_fisico: stk.stock_actual, stock_disponible: stk.stock_actual, fecha_sync: stk.fecha_sync })
-              .eq('id', ins.id);
-            if (!error) insumoUpdated++;
-          }
+          if (stk) toUpdate.push({ id: ins.id, stock_actual: stk.stock_actual, fecha_sync: stk.fecha_sync });
         }
-        insumoStockUpdate = { updated: insumoUpdated, total_insumos: (insumos || []).length, stock_codes: Object.keys(stockMap).length };
-        console.log(`Post-BOM: updated ${insumoUpdated}/${(insumos || []).length} insumos with real stock from ${Object.keys(stockMap).length} pivot codes`);
+        let insumoUpdated = 0;
+        const BATCH = 50;
+        for (let i = 0; i < toUpdate.length; i += BATCH) {
+          const batch = toUpdate.slice(i, i + BATCH);
+          const results = await Promise.all(batch.map(u =>
+            supabase.from('stock_insumos')
+              .update({ stock_fisico: u.stock_actual, stock_disponible: u.stock_actual, fecha_sync: u.fecha_sync })
+              .eq('id', u.id)
+          ));
+          insumoUpdated += results.filter(r => !r.error).length;
+        }
+        insumoStockUpdate = { updated: insumoUpdated, total_insumos: (insumos || []).length, matched: toUpdate.length };
+        console.log(`Post-BOM: updated ${insumoUpdated}/${toUpdate.length} insumos (from ${(insumos || []).length} total)`);
       } catch (e) {
         insumoStockUpdate = { error: e.message };
         console.warn('Error updating stock_insumos post-BOM:', e.message);
