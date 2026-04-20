@@ -146,9 +146,9 @@ async function syncStockSistema(sheets, config, supabase) {
   // Don't insert "Sin asignar" products — only update existing ones with marca
   const notMatched = updates.length - matched.size;
 
-  // NOTE: stock_insumos update moved to handler (after syncBOM) to avoid being overwritten
-  // Return stockMap so handler can use it after BOM sync completes
-  return { updated: updatedCount, matched_codes: matched.size, not_matched: notMatched, total_codes: updates.length, _stockMap: stockMap };
+  // Return stockMap so handler can pass it to syncBOM for real stock values
+  console.log(`Stock Sistema: ${updatedCount} products updated, stockMap has ${Object.keys(stockMap).length} codes, sample: ${JSON.stringify(Object.entries(stockMap).slice(0, 3).map(([k,v]) => [k, v.stock_actual]))}`);
+  return { updated: updatedCount, matched_codes: matched.size, not_matched: notMatched, total_codes: updates.length, stock_map_size: Object.keys(stockMap).length, _stockMap: stockMap };
 }
 
 // ─── SYNC 2: Ventas/Stock from "Datos" flat table ───
@@ -552,9 +552,10 @@ async function syncBOM(sheets, config, supabase, realStockMap) {
   // Upsert stock_insumos
   const insumoArr = Object.values(insumoStock);
   const withStock = insumoArr.filter(i => i.stock_fisico > 0).length;
+  const withRealStock = insumoArr.filter(i => realStockMap && realStockMap[i.codigo]).length;
   const byTipo = {};
   insumoArr.forEach(i => { byTipo[i.tipo_insumo_global] = (byTipo[i.tipo_insumo_global] || 0) + 1; });
-  console.log(`BOM insumos: ${insumoArr.length} unique, ${withStock} with stock > 0, types: ${JSON.stringify(byTipo)}`);
+  console.log(`BOM insumos: ${insumoArr.length} unique, ${withStock} with stock > 0, ${withRealStock} matched real stock map (map has ${realStockMap ? Object.keys(realStockMap).length : 0} codes), types: ${JSON.stringify(byTipo)}`);
 
   // Clear old insumos and re-insert
   try {
@@ -576,7 +577,7 @@ async function syncBOM(sheets, config, supabase, realStockMap) {
     }
   }
 
-  return { bom_rows: bomCount, bom_raw: bomItems.length, bom_unique: bomUnique.length, bom_products: new Set(bomUnique.map(b=>b.codigo_principal)).size, insumos: insumoCount, sheet_used: usedSheet, with_stock: withStock, tipo_breakdown: byTipo, errors: bomErrors.length > 0 ? bomErrors : undefined };
+  return { bom_rows: bomCount, bom_raw: bomItems.length, bom_unique: bomUnique.length, bom_products: new Set(bomUnique.map(b=>b.codigo_principal)).size, insumos: insumoCount, sheet_used: usedSheet, with_stock: withStock, with_real_stock: withRealStock, real_stock_map_size: realStockMap ? Object.keys(realStockMap).length : 0, tipo_breakdown: byTipo, errors: bomErrors.length > 0 ? bomErrors : undefined };
 }
 
 // ─── SYNC 5: Producciones planificadas (UNIFICADO) ───
