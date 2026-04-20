@@ -151,6 +151,26 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold);}
 .modal .row{display:flex;gap:12px;}
 .modal .row>*{flex:1;}
 
+/* Custom Confirm/Prompt Modal */
+.confirm-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:9999;padding:20px;animation:fadeIn .15s ease;}
+.confirm-modal{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.4);}
+.confirm-modal h3{color:var(--txt);margin-bottom:12px;font-size:16px;}
+.confirm-modal p{color:var(--txt2);font-size:14px;margin-bottom:20px;white-space:pre-line;}
+.confirm-modal input,.confirm-modal textarea{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);color:var(--txt);font-size:14px;margin-bottom:16px;}
+.confirm-modal input:focus,.confirm-modal textarea:focus{outline:none;border-color:var(--gold);}
+.confirm-modal .confirm-actions{display:flex;gap:8px;justify-content:flex-end;}
+.confirm-modal .confirm-actions button{padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all .15s;}
+.confirm-modal .btn-confirm{background:var(--gold);color:#000;}
+.confirm-modal .btn-confirm:hover{background:#d4a843;}
+.confirm-modal .btn-confirm-danger{background:var(--red);color:#fff;}
+.confirm-modal .btn-confirm-danger:hover{opacity:.85;}
+.confirm-modal .btn-cancel{background:var(--bg3);color:var(--txt);border:1px solid var(--border);}
+.confirm-modal .btn-cancel:hover{background:var(--bg2);}
+
+/* Form validation shake */
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+.field-error input,.field-error textarea{border-color:var(--red)!important;animation:shake .3s ease;}
+
 /* Toast */
 .toast{position:fixed;bottom:20px;right:20px;background:var(--green);color:#fff;padding:12px 20px;border-radius:8px;font-size:14px;z-index:300;animation:slideIn .3s ease;}
 .toast.error{background:var(--red);}
@@ -971,9 +991,11 @@ function calcularSemaforo(activas) {
 
 function semaforoItem(x) {
   const diasText = x.dias === null ? '' : x.dias === 0 ? 'Vence hoy' : x.dias > 0 ? `${x.dias}d restantes` : `Vencido hace ${Math.abs(x.dias)}d`;
+  const statusLabel = x.sol.status || '';
+  const pasoLabel = x.paso ? x.paso.replace(/\s*\([^)]*\)\s*$/, '') : '';
   return `<div class="semaforo-item" onclick="openSolicitud('${x.sol.id}')">
-    <div class="sol-name">#${x.sol.numero} ${x.sol.nombre}</div>
-    <div class="sol-paso">Pendiente: ${x.detalle} ${diasText ? '— ' + diasText : ''}</div>
+    <div class="sol-name">#${x.sol.numero} ${x.sol.nombre} <span style="font-size:11px;color:var(--txt2);font-weight:400;">— ${statusLabel}</span></div>
+    <div class="sol-paso">Próximo paso: ${pasoLabel}${x.responsable ? ' (' + x.responsable + ')' : ''} ${diasText ? '— ' + diasText : ''}</div>
   </div>`;
 }
 
@@ -3485,9 +3507,12 @@ async function submitSolicitud() {
   // Generate retroplan
   const template = RETROPLAN_TEMPLATES[tipo] || RETROPLAN_TEMPLATES['Nuevos desarrollos'];
   const launchDate = new Date(lanzamiento + 'T12:00:00');
+  const today = new Date(); today.setHours(12,0,0,0);
   const pasos = template.map((t, i) => {
     const fecha = new Date(launchDate);
     fecha.setDate(fecha.getDate() - t.dias);
+    // For early steps (first 3): don't let them be in the past at creation time
+    if (i < 3 && fecha < today) fecha.setTime(today.getTime());
     let resp = t.responsable;
     if (resp === '__COTIZ__') resp = cotiz;
     return {
@@ -3543,7 +3568,7 @@ function renderSolicitudDetail(c, data) {
   c.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
       <button class="btn-outline btn-sm" onclick="switchTab(currentTab)">← Volver</button>
-      ${canDelete() && s.status !== 'Eliminada' ? `<button class="btn-red btn-sm" onclick="eliminarSolicitud('${s.id}')">🗑 Eliminar solicitud</button>` : ''}
+      ${canDelete() && s.status !== 'Eliminada' ? `<button class="btn-outline btn-sm" style="color:var(--txt2);border-color:var(--border);font-size:11px;" onclick="eliminarSolicitud('${s.id}')">Eliminar</button>` : ''}
     </div>
     <div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:12px;">
       <div>
@@ -3552,6 +3577,20 @@ function renderSolicitudDetail(c, data) {
       </div>
       <div>${pill(s.status)}</div>
     </div>
+    ${(() => {
+      const pasos = data.pasos || [];
+      if (!pasos.length) return '';
+      const done = pasos.filter(p => p.completado).length;
+      const pct = Math.round((done / pasos.length) * 100);
+      return `<div style="margin-top:12px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--txt2);margin-bottom:4px;">
+          <span>Progreso del retroplan</span><span>${done}/${pasos.length} pasos (${pct}%)</span>
+        </div>
+        <div style="height:6px;background:var(--bg3);border-radius:3px;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,var(--green),var(--gold));border-radius:3px;transition:width .3s;"></div>
+        </div>
+      </div>`;
+    })()}
 
     <div class="grid grid-2" style="margin-top:16px;">
       <div class="card">
@@ -3696,9 +3735,9 @@ function renderActionBar(s, data) {
     case 'Pedido de muestras':
       if (isCompras() || canApprove()) {
         html += `<p style="color:var(--txt2);font-size:13px;">Nadia Maggi coordina el envío de muestras. Cargá el tracking del courier.</p>`;
-        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Courier (ej: DHL, FedEx)</label><input type="text" id="muestraCourier" placeholder="DHL" style="max-width:200px;"></div>`;
-        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Tracking number</label><input type="text" id="muestraTracking" placeholder="1234567890" style="max-width:300px;"></div>`;
-        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Fecha de despacho</label><input type="date" id="muestraDespacho" style="max-width:200px;"></div>`;
+        html += `<div class="field" style="margin:8px 0;" id="fieldCourier"><label style="font-size:12px;">Courier <span style="color:var(--txt2);">(ej: DHL, FedEx)</span></label><input type="text" id="muestraCourier" value="DHL" style="max-width:200px;"></div>`;
+        html += `<div class="field" style="margin:8px 0;" id="fieldTracking"><label style="font-size:12px;">Tracking number <span style="color:var(--red);">*</span></label><input type="text" id="muestraTracking" required style="max-width:300px;"></div>`;
+        html += `<div class="field" style="margin:8px 0;" id="fieldDespacho"><label style="font-size:12px;">Fecha de despacho <span style="color:var(--red);">*</span></label><input type="date" id="muestraDespacho" required style="max-width:200px;"></div>`;
         html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Fecha estimada arribo muestra</label><input type="date" id="muestraETA" style="max-width:200px;"></div>`;
         html += `<button class="btn-gold" onclick="despacharMuestras('${sid}')">Muestras despachadas → En tránsito</button>`;
       }
@@ -3738,8 +3777,8 @@ function renderActionBar(s, data) {
     case 'Esperando muestras técnicas':
       if (isCompras() || canApprove()) {
         html += `<p style="color:var(--txt2);font-size:13px;">Pedí nuevas muestras para pruebas técnicas. Cargá el tracking del courier.</p>`;
-        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Courier (ej: DHL, FedEx)</label><input type="text" id="muestraTecCourier" placeholder="DHL" style="max-width:200px;"></div>`;
-        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Tracking number</label><input type="text" id="muestraTecTracking" placeholder="1234567890" style="max-width:300px;"></div>`;
+        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Courier <span style="color:var(--txt2);">(ej: DHL, FedEx)</span></label><input type="text" id="muestraTecCourier" value="DHL" style="max-width:200px;"></div>`;
+        html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Tracking number <span style="color:var(--red);">*</span></label><input type="text" id="muestraTecTracking" required style="max-width:300px;"></div>`;
         html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Fecha de despacho</label><input type="date" id="muestraTecDespacho" style="max-width:200px;"></div>`;
         html += `<div class="field" style="margin:8px 0;"><label style="font-size:12px;">Fecha estimada arribo</label><input type="date" id="muestraTecETA" style="max-width:200px;"></div>`;
         html += `<button class="btn-gold" onclick="despacharMuestrasTecnicas('${sid}')">Muestras técnicas despachadas</button>`;
@@ -4014,7 +4053,7 @@ async function approveCompras(id) {
 }
 
 async function requestInfo(id) {
-  const motivo = prompt('¿Qué información necesitás?');
+  const motivo = await asyncPrompt('¿Qué información necesitás?', { title: 'Solicitar información' });
   if (!motivo) return;
   const s = solicitudes.find(x => x.id === id);
   await updateStatus(id, 'Info solicitada', 'Info solicitada por Compras', motivo,
@@ -4024,7 +4063,7 @@ async function requestInfo(id) {
 }
 
 async function rejectSolicitud(id) {
-  const motivo = prompt('Motivo del rechazo:');
+  const motivo = await asyncPrompt('Motivo del rechazo:', { title: 'Rechazar solicitud' });
   if (!motivo) return;
   const s = solicitudes.find(x => x.id === id);
   await updateStatus(id, 'Rechazada', 'Solicitud rechazada', motivo,
@@ -4090,8 +4129,20 @@ async function despacharMuestras(id) {
   const despacho = document.getElementById('muestraDespacho')?.value;
   const eta = document.getElementById('muestraETA')?.value;
 
-  if (!tracking) { toast('Ingresá el tracking number', true); return; }
-  if (!despacho) { toast('Ingresá la fecha de despacho', true); return; }
+  let hasError = false;
+  if (!tracking) {
+    toast('Ingresá el tracking number', true);
+    const f = document.getElementById('fieldTracking');
+    if (f) { f.classList.add('field-error'); setTimeout(() => f.classList.remove('field-error'), 600); }
+    hasError = true;
+  }
+  if (!despacho) {
+    toast('Ingresá la fecha de despacho', true);
+    const f = document.getElementById('fieldDespacho');
+    if (f) { f.classList.add('field-error'); setTimeout(() => f.classList.remove('field-error'), 600); }
+    hasError = true;
+  }
+  if (hasError) return;
 
   const s = solicitudes.find(x => x.id === id);
 
@@ -4154,7 +4205,7 @@ async function approveItemAesthetic(itemId, solId) {
 }
 
 async function rejectItemAesthetic(itemId, solId) {
-  const motivo = prompt('Motivo del rechazo estético:');
+  const motivo = await asyncPrompt('Motivo del rechazo estético:', { title: 'Rechazo estético' });
   if (!motivo) return;
   await sb.from('solicitud_items').update({ status_estetico: 'rechazado', notas: motivo }).eq('id', itemId);
   await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Ítem rechazado estéticamente', detalle: motivo });
@@ -4164,7 +4215,7 @@ async function rejectItemAesthetic(itemId, solId) {
 }
 
 async function approveAllAesthetic(solId) {
-  if (!confirm('¿Aprobar todos los ítems estéticamente?')) return;
+  if (!await asyncConfirm('¿Aprobar todos los ítems estéticamente?', { title: 'Aprobación estética', confirmText: 'Aprobar todos' })) return;
   try {
     const { data: items } = await sb.from('solicitud_items').select('id, status_estetico').eq('solicitud_id', solId);
     const pendientes = items?.filter(i => i.status_estetico === 'pendiente') || [];
@@ -4302,6 +4353,7 @@ async function despacharMuestrasTecnicas(id) {
 }
 
 async function techSamplesArrived(id) {
+  await completePasoByName(id, 'Muestras técnicas');
   await updateStatus(id, 'Pendiente aprobación Calidad', 'Muestras técnicas recibidas', null,
     ['nmaggi@cdimex.com.ar','abenitez@cdimex.com.ar'],
     `Solicitud #${solicitudes.find(x=>x.id===id)?.numero}: Muestras técnicas para aprobación Calidad`,
@@ -4318,7 +4370,7 @@ async function calidadApprove(id) {
 }
 
 async function calidadReject(id) {
-  const motivo = prompt('Motivo del rechazo de Calidad:');
+  const motivo = await asyncPrompt('Motivo del rechazo de Calidad:', { title: 'Rechazo de Calidad' });
   if (!motivo) return;
   const s = solicitudes.find(x => x.id === id);
   await updateStatus(id, 'Esperando muestras técnicas', 'Calidad rechazó', motivo,
@@ -4553,7 +4605,7 @@ async function addDisenoFinal(solId) {
 async function eliminarSolicitud(id) {
   if (!canDelete()) return toast('No tenés permisos para eliminar', true);
   const s = solicitudes.find(x => x.id === id);
-  if (!confirm(`¿Eliminar la solicitud #${s?.numero} "${s?.nombre}"?\n\nLa solicitud pasará a estado "Eliminada" y no se mostrará en las listas activas.`)) return;
+  if (!await asyncConfirm(`¿Eliminar la solicitud #${s?.numero} "${s?.nombre}"?\n\nLa solicitud pasará a estado "Eliminada" y no se mostrará en las listas activas.`, { title: '⚠️ Eliminar solicitud', danger: true, confirmText: 'Sí, eliminar' })) return;
 
   await sb.from('solicitudes').update({ status: 'Eliminada' }).eq('id', id);
   await sb.from('historial').insert({
@@ -4571,7 +4623,7 @@ async function eliminarMasivo() {
   const checkboxes = document.querySelectorAll('.sol-check:checked');
   if (!checkboxes.length) return toast('Seleccioná al menos una solicitud', true);
   const ids = Array.from(checkboxes).map(c => c.value);
-  if (!confirm(`¿Eliminar ${ids.length} solicitud(es)?\n\nPasarán a estado "Eliminada".`)) return;
+  if (!await asyncConfirm(`¿Eliminar ${ids.length} solicitud(es)?\n\nPasarán a estado "Eliminada".`, { title: '⚠️ Eliminación masiva', danger: true, confirmText: 'Sí, eliminar' })) return;
 
   for (const id of ids) {
     await sb.from('solicitudes').update({ status: 'Eliminada' }).eq('id', id);
@@ -4610,7 +4662,7 @@ async function completePasoByName(solId, nombre) {
 // REGENERAR RETROPLAN
 // =============================================
 async function regenerarRetroplan(solId, tipo, fechaLanzamiento) {
-  if (!confirm('¿Regenerar el retroplan con el template actualizado?\n\nEsto eliminará todos los pasos actuales y creará los nuevos. Los pasos ya completados se perderán.')) return;
+  if (!await asyncConfirm('¿Regenerar el retroplan con el template actualizado?\n\nEsto eliminará todos los pasos actuales y creará los nuevos. Los pasos ya completados se perderán.', { title: '⚠️ Regenerar retroplan', danger: true, confirmText: 'Sí, regenerar' })) return;
 
   // Get cotización responsable for __COTIZ__ placeholder
   const { data: sol } = await sb.from('solicitudes').select('cotizacion_responsable').eq('id', solId).single();
@@ -4622,9 +4674,11 @@ async function regenerarRetroplan(solId, tipo, fechaLanzamiento) {
   // Generate new pasos from current template
   const template = RETROPLAN_TEMPLATES[tipo] || RETROPLAN_TEMPLATES['Nuevos desarrollos'];
   const launchDate = new Date(fechaLanzamiento + 'T12:00:00');
+  const today = new Date(); today.setHours(12,0,0,0);
   const pasos = template.map((t, i) => {
     const fecha = new Date(launchDate);
     fecha.setDate(fecha.getDate() - t.dias);
+    if (i < 3 && fecha < today) fecha.setTime(today.getTime());
     let resp = t.responsable;
     if (resp === '__COTIZ__') resp = cotiz;
     return {
@@ -4650,7 +4704,7 @@ async function regenerarRetroplan(solId, tipo, fechaLanzamiento) {
 // CHANGE LAUNCH DATE
 // =============================================
 async function changeLaunchDate(id, currentDate) {
-  const newDate = prompt('Nueva fecha de lanzamiento (YYYY-MM-DD):', currentDate);
+  const newDate = await asyncPrompt('Nueva fecha de lanzamiento (YYYY-MM-DD):', { title: 'Cambiar fecha de lanzamiento', defaultValue: currentDate });
   if (!newDate || newDate === currentDate) return;
   // Validate date format
   if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate) || isNaN(new Date(newDate + 'T12:00:00').getTime())) {
@@ -4698,7 +4752,7 @@ async function changeLaunchDate(id, currentDate) {
 // COMPRA PARCIAL
 // =============================================
 async function toggleCompraParcial(itemId, solId) {
-  const detalle = prompt('Detalle de compra parcial (dejar vacío para quitar):');
+  const detalle = await asyncPrompt('Detalle de compra parcial (dejar vacío para quitar):', { title: 'Compra parcial' });
   const parcial = detalle ? true : false;
   await sb.from('solicitud_items').update({ compra_parcial: parcial, compra_parcial_detalle: detalle || null }).eq('id', itemId);
   await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: parcial ? 'Compra parcial registrada' : 'Compra parcial removida', detalle });
@@ -4710,9 +4764,9 @@ async function toggleCompraParcial(itemId, solId) {
 // ADD ITEM
 // =============================================
 async function addItemToSolicitud(solId) {
-  const nombre = prompt('Nombre del ítem:');
+  const nombre = await asyncPrompt('Nombre del ítem:', { title: 'Agregar ítem' });
   if (!nombre) return;
-  const tipo = prompt('Tipo: Frasco vidrio, Frasco plástico, Estuche, Tapa, Válvula, Etiqueta, Otro', 'Otro');
+  const tipo = await asyncPrompt('Tipo: Frasco vidrio, Frasco plástico, Estuche, Tapa, Válvula, Etiqueta, Otro', { title: 'Tipo de ítem', defaultValue: 'Otro' });
   await sb.from('solicitud_items').insert({ solicitud_id: solId, nombre, tipo_producto: tipo });
   await sb.from('historial').insert({ solicitud_id: solId, actor_id: currentUser.id, evento: 'Ítem agregado', detalle: nombre });
   toast('Ítem agregado');
@@ -4723,7 +4777,7 @@ async function addItemToSolicitud(solId) {
 // COMEX EDIT
 // =============================================
 async function editComexOP(comexId) {
-  const op = prompt('Número de OP:');
+  const op = await asyncPrompt('Número de OP:', { title: 'Editar OP' });
   if (op === null) return;
   await sb.from('comex_seguimiento').update({ op_numero: op }).eq('id', comexId);
   toast('OP actualizado');
@@ -4731,10 +4785,11 @@ async function editComexOP(comexId) {
 }
 
 async function editComex(comexId) {
-  const pago = prompt('Estado pago exterior (pendiente/procesando/pagado):', 'pendiente');
-  const packing = confirm('¿Packing list OK?');
-  const shipping = confirm('¿Shipping marks OK?');
-  const notas = prompt('Notas:');
+  const pago = await asyncPrompt('Estado pago exterior (pendiente/procesando/pagado):', { title: 'Editar Comex', defaultValue: 'pendiente' });
+  if (pago === null) return;
+  const packing = await asyncConfirm('¿Packing list OK?', { title: 'Packing list', confirmText: 'Sí', cancelText: 'No' });
+  const shipping = await asyncConfirm('¿Shipping marks OK?', { title: 'Shipping marks', confirmText: 'Sí', cancelText: 'No' });
+  const notas = await asyncPrompt('Notas:', { title: 'Notas Comex' });
   await sb.from('comex_seguimiento').update({
     pago_exterior_status: pago, packing_list_ok: packing, shipping_marks_ok: shipping, notas
   }).eq('id', comexId);
@@ -4890,6 +4945,52 @@ async function syncSemaforoToSheets(semaforo) {
       body: JSON.stringify({ rows })
     });
   } catch (e) { console.warn('Semáforo sync error:', e); }
+}
+
+// =============================================
+// CUSTOM CONFIRM / PROMPT MODALS (replaces native confirm/prompt)
+// =============================================
+function asyncConfirm(message, { title = 'Confirmar', danger = false, confirmText = 'Confirmar', cancelText = 'Cancelar' } = {}) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-modal-overlay';
+    overlay.innerHTML = `<div class="confirm-modal">
+      <h3>${title}</h3>
+      <p>${message}</p>
+      <div class="confirm-actions">
+        <button class="btn-cancel" id="confirmCancel">${cancelText}</button>
+        <button class="${danger ? 'btn-confirm-danger' : 'btn-confirm'}" id="confirmOk">${confirmText}</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#confirmOk').onclick = () => { overlay.remove(); resolve(true); };
+    overlay.querySelector('#confirmCancel').onclick = () => { overlay.remove(); resolve(false); };
+    overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve(false); } });
+    overlay.querySelector('#confirmOk').focus();
+  });
+}
+
+function asyncPrompt(message, { title = 'Ingresá', defaultValue = '', placeholder = '' } = {}) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-modal-overlay';
+    overlay.innerHTML = `<div class="confirm-modal">
+      <h3>${title}</h3>
+      <p>${message}</p>
+      <input type="text" id="promptInput" value="${defaultValue}" placeholder="${placeholder}">
+      <div class="confirm-actions">
+        <button class="btn-cancel" id="promptCancel">Cancelar</button>
+        <button class="btn-confirm" id="promptOk">Aceptar</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const inp = overlay.querySelector('#promptInput');
+    inp.focus(); inp.select();
+    overlay.querySelector('#promptOk').onclick = () => { const v = inp.value; overlay.remove(); resolve(v); };
+    overlay.querySelector('#promptCancel').onclick = () => { overlay.remove(); resolve(null); };
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { const v = inp.value; overlay.remove(); resolve(v); } });
+    overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve(null); } });
+  });
 }
 
 // =============================================
@@ -5337,7 +5438,7 @@ async function kanbanDrop(e) {
     return;
   }
 
-  if (!confirm(`¿Mover #${sol.numero} "${sol.nombre}" de "${sol.status}" a "${targetStatus}"?`)) {
+  if (!await asyncConfirm(`¿Mover #${sol.numero} "${sol.nombre}" de "${sol.status}" a "${targetStatus}"?`, { title: 'Mover solicitud' })) {
     _draggedSolId = null;
     return;
   }
@@ -5362,7 +5463,7 @@ async function bulkApprove() {
     return s?.status === 'Pendiente aprobación Compras';
   });
   if (!pendientes.length) return toast('Ninguna de las seleccionadas está pendiente de aprobación', true);
-  if (!confirm(`¿Aprobar ${pendientes.length} solicitudes en lote?`)) return;
+  if (!await asyncConfirm(`¿Aprobar ${pendientes.length} solicitudes en lote?`, { title: 'Aprobación masiva', confirmText: 'Aprobar' })) return;
 
   let ok = 0;
   for (const id of pendientes) {
@@ -5401,7 +5502,7 @@ async function bulkMoveNext() {
   const nextStatus = STATUS_LIST[idx + 1];
   if (!nextStatus || ['Completado','Rechazada','Eliminada'].includes(nextStatus)) return toast('No se puede avanzar desde este estado en lote', true);
 
-  if (!confirm(`¿Mover ${groups[currentStatus].length} solicitudes de "${currentStatus}" a "${nextStatus}"?`)) return;
+  if (!await asyncConfirm(`¿Mover ${groups[currentStatus].length} solicitudes de "${currentStatus}" a "${nextStatus}"?`, { title: 'Avance masivo' })) return;
 
   let ok = 0;
   for (const s of groups[currentStatus]) {
