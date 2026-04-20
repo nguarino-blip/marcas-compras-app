@@ -814,9 +814,19 @@ async function switchTab(tab) {
   const myVersion = _tabRenderVersion;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
   const c = document.getElementById('tabContent');
-  // Restore container width for non-MRP tabs
+  // Set container width IMMEDIATELY based on target tab (avoids flash)
   const container = c.closest('.container');
-  if (container && tab !== 'mrp' && tab !== 'sop' && tab !== 'kanban') { container.style.maxWidth = '1200px'; container.style.padding = '20px'; }
+  if (container) {
+    if (tab === 'mrp' || tab === 'sop') {
+      container.style.maxWidth = '100%'; container.style.padding = '10px 16px';
+    } else if (tab === 'kanban') {
+      container.style.maxWidth = '100%'; container.style.padding = '12px';
+    } else {
+      container.style.maxWidth = '1200px'; container.style.padding = '20px';
+    }
+  }
+  // Show loading indicator for all tabs (instant feedback)
+  c.innerHTML = '<div style="text-align:center;padding:40px;color:var(--txt2);">Cargando...</div>';
   // Verify session is still valid before rendering data tabs
   if (['metricas','mrp','sop','admin'].includes(tab)) {
     const { data: { session } } = await sb.auth.getSession();
@@ -826,6 +836,11 @@ async function switchTab(tab) {
     }
   }
   if (myVersion !== _tabRenderVersion) return; // tab changed while checking session
+  // Refresh solicitudes data for tabs that depend on it (ensures fresh data on every switch)
+  if (['dashboard','solicitudes','kanban','aprobaciones','comex'].includes(tab)) {
+    await loadSolicitudes();
+    if (myVersion !== _tabRenderVersion) return; // tab changed during data refresh
+  }
   switch (tab) {
     case 'dashboard': renderDashboard(c); break;
     case 'solicitudes': renderSolicitudes(c); break;
@@ -1353,8 +1368,6 @@ const VENTAS_2025 = {"1854":[148685,2896738086],"4158":[87516,1785849999],"4007"
 // ─── S&OP DASHBOARD — Executive Supply Chain View ───
 async function renderSOPDashboard(c, _rv) {
   c.innerHTML = '<div style="text-align:center;padding:40px;color:var(--txt2);">Cargando dashboard S&OP...</div>';
-  const container = c.closest('.container');
-  if (container) { container.style.maxWidth = '100%'; container.style.padding = '10px 16px'; }
 
   async function fetchAll(table, select, filters) {
     const PAGE = 1000; let all = [], from = 0;
@@ -1658,7 +1671,7 @@ async function renderSOPDashboard(c, _rv) {
             ${marcasSorted.map(([m, d]) => {
               const avgCob = d.skus > 0 ? Math.round(d.cobSum / d.skus) : 0;
               const health = d.stockouts === 0 && d.urgentes <= 1 ? '🟢' : d.stockouts <= 2 && d.urgentes <= 3 ? '🟡' : '🔴';
-              return `<tr style="border-bottom:1px solid var(--border);cursor:pointer;" onclick="switchTab('mrp');setTimeout(()=>{const s=document.getElementById('mrpFiltFab');if(s){s.value='${m}';filterMrpFab();}},500);">
+              return `<tr style="border-bottom:1px solid var(--border);cursor:pointer;" onclick="switchTab('mrp');(function waitFilt(){const s=document.getElementById('mrpFiltFab');if(s){s.value='${m}';filterMrpFab();}else{setTimeout(waitFilt,300);}})();">
                 <td style="padding:4px 5px;font-weight:600;">${m}</td>
                 <td style="padding:4px 5px;text-align:center;">${d.skus}</td>
                 <td style="padding:4px 5px;text-align:center;color:var(--green);">${d.abcA}</td>
@@ -2182,10 +2195,6 @@ async function renderMRPPage(c, _rv) {
 
     // ALL products for display (sorted by demanda, top sellers first)
     const fabTop = fabActivos;
-
-    // Expand container for MRP wide tables
-    const container = c.closest('.container');
-    if (container) { container.style.maxWidth = '100%'; container.style.padding = '10px 16px'; }
 
     c.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
@@ -5064,12 +5073,15 @@ function startRealtimeSubscription() {
       if (payload.eventType === 'UPDATE' && payload.new.status !== oldData?.status) {
         showRealtimeNotif(payload.new, oldData?.status, payload.new.status);
       }
-      // Refresh current tab view
+      // Refresh current tab view (only solicitudes-dependent tabs; MRP/S&OP fetch their own data)
       const c = document.getElementById('tabContent');
-      if (c && currentTab === 'dashboard') renderDashboard(c);
-      else if (c && currentTab === 'solicitudes') renderSolicitudes(c);
-      else if (c && currentTab === 'kanban') renderKanban(c);
-      else if (c && currentTab === 'aprobaciones') renderAprobaciones(c);
+      if (c && !viewingSolicitud) {
+        if (currentTab === 'dashboard') renderDashboard(c);
+        else if (currentTab === 'solicitudes') renderSolicitudes(c);
+        else if (currentTab === 'kanban') renderKanban(c);
+        else if (currentTab === 'aprobaciones') renderAprobaciones(c);
+        else if (currentTab === 'comex') renderComex(c);
+      }
     })
     .subscribe();
 }
@@ -5339,9 +5351,6 @@ const KANBAN_COLUMNS = [
 ];
 
 function renderKanban(c) {
-  const container = c.closest('.container');
-  if (container) { container.style.maxWidth = '100%'; container.style.padding = '12px'; }
-
   const active = solicitudes.filter(s => !['Completado','Rechazada','Eliminada'].includes(s.status));
 
   c.innerHTML = `
