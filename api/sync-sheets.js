@@ -1,4 +1,4 @@
-// GET /api/sync-sheets — Daily cron: sync Google Sheets → Supabase stock_productos
+// GET /api/sync-sheets â Daily cron: sync Google Sheets â Supabase stock_productos
 import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 
@@ -36,7 +36,7 @@ function getCurrentMonthCol() {
   return now.getMonth();
 }
 
-// ─── SYNC 1: Stock Sistema (nueva planilla — código + stock total sumando depósitos) ───
+// âââ SYNC 1: Stock Sistema (nueva planilla â cÃ³digo + stock total sumando depÃ³sitos) âââ
 async function syncStockSistema(sheets, config, supabase) {
   if (!config.sheet_id_stock_sistema) return { updated: 0, skipped: 'No sheet_id_stock_sistema configured' };
 
@@ -53,9 +53,9 @@ async function syncStockSistema(sheets, config, supabase) {
     console.error('Stock Sistema: failed to get spreadsheet metadata:', e.message);
   }
 
-  // 1. Read "Descripcion" sheet to get code → name mapping
+  // 1. Read "Descripcion" sheet to get code â name mapping
   let descMap = {};
-  const descNames = [config.sheet_name_descripcion, 'Descripcion', 'Descripción', ...allTabs.filter(t => t.toLowerCase().includes('descr'))].filter(Boolean);
+  const descNames = [config.sheet_name_descripcion, 'Descripcion', 'DescripciÃ³n', ...allTabs.filter(t => t.toLowerCase().includes('descr'))].filter(Boolean);
   for (const dn of descNames) {
     try {
       const descRes = await sheets.spreadsheets.values.get({
@@ -74,70 +74,7 @@ async function syncStockSistema(sheets, config, supabase) {
         console.log(`Stock Sistema: loaded ${Object.keys(descMap).length} descriptions from '${dn}'`);
         break;
       }
-    } catch (e) {
-      console.warn(`Could not read Descripcion sheet '${dn}':`, e.message);
-    }
-  }
-
-  // 2. Read stock sheet — pivot table: CODIGO | dep1 | dep2 | ... | TOTAL
-  const stockNames = [
-    config.sheet_name_stock_sistema,
-    'Stock Sistema',
-    'STOCK',
-    'Stock al día',
-    'Stock al dia',
-    'Hoja 1',
-    'Hoja1',
-    'Sheet1',
-    ...allTabs.filter(t => !descNames.includes(t)),
-  ].filter(Boolean);
-
-  let rows = [];
-  let usedStockSheet = '';
-  for (const sn of stockNames) {
-    try {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: config.sheet_id_stock_sistema,
-        range: `'${sn}'`,
-        valueRenderOption: 'UNFORMATTED_VALUE',
-      });
-      rows = res.data.values || [];
-      if (rows.length >= 3) { usedStockSheet = sn; break; }
-    } catch (e) {
-      console.warn(`Stock Sistema sheet '${sn}' not found, trying next...`);
-    }
-  }
-  console.log(`Stock Sistema: using sheet '${usedStockSheet}' with ${rows.length} rows`);
-  if (rows.length >= 1) console.log(`Stock Sistema: row0=${JSON.stringify((rows[0]||[]).slice(0,5))}, row1=${JSON.stringify((rows[1]||[]).slice(0,5))}`);
-  if (rows.length < 3) return { updated: 0, skipped: `Not enough rows. Tabs: ${JSON.stringify(allTabs)}` };
-
-  // Row 0: "SUM de STOCK" | "DEPOSITO" | ...
-  // Row 1: "CODIGO" | dep_100 | dep_105 | ... | (empty col?) | "TOTAL"
-  // Row 2+: codigo | qty_dep1 | qty_dep2 | ... | total
-  const headerRow = rows[1] || [];
-
-  // Find TOTAL column and deposit columns (numeric headers = deposit IDs)
-  let totalColIdx = -1;
-  const depositCols = [];
-  for (let i = 0; i < headerRow.length; i++) {
-    const h = String(headerRow[i] || '').toUpperCase().trim();
-    if (h === 'TOTAL' || h === 'TOTAL GENERAL') {
-      totalColIdx = i;
-    } else if (i > 0 && !isNaN(Number(headerRow[i]))) {
-      depositCols.push(i);
-    }
-  }
-
-  console.log(`Stock Sistema: totalCol=${totalColIdx}, depositCols=${depositCols.length}, rows=${rows.length}`);
-
-  const updates = [];
-  for (let r = 2; r < rows.length; r++) {
-    const row = rows[r];
-    const codigoRaw = row[0];
-    if (codigoRaw == null || codigoRaw === '' || String(codigoRaw).toUpperCase() === 'TOTAL') continue;
-    const codigo = String(codigoRaw).trim();
-
-    // Strategy: use TOTAL column if the row has data there, otherwise sum deposit columns
+    } catch (e)  // Strategy: use TOTAL column if the row has data there, otherwise sum deposit columns
     let stockTotal = 0;
     if (totalColIdx >= 0 && row.length > totalColIdx && row[totalColIdx] != null) {
       stockTotal = parseNum(row[totalColIdx]);
@@ -164,7 +101,7 @@ async function syncStockSistema(sheets, config, supabase) {
 
   if (updates.length === 0) return { updated: 0, skipped: 'No products found in Stock Sistema' };
 
-  // Build a map of codigo → stock_actual for fast lookup
+  // Build a map of codigo â stock_actual for fast lookup
   const stockMap = {};
   for (const u of updates) {
     stockMap[u.codigo] = u;
@@ -192,13 +129,13 @@ async function syncStockSistema(sheets, config, supabase) {
     }
   }
 
-  // Don't insert "Sin asignar" products — only update existing ones with marca
+  // Don't insert "Sin asignar" products â only update existing ones with marca
   const notMatched = updates.length - matched.size;
 
   return { updated: updatedCount, matched_codes: matched.size, not_matched: notMatched, total_codes: updates.length };
 }
 
-// ─── SYNC 2: Ventas/Stock/Cobertura (planilla original) ───
+// âââ SYNC 2: Ventas/Stock/Cobertura (planilla original) âââ
 async function syncStocks(sheets, config, supabase) {
   if (!config.sheet_id_stocks) return { updated: 0, skipped: 'No sheet_id_stocks configured' };
 
@@ -259,13 +196,13 @@ async function syncStocks(sheets, config, supabase) {
 
   if (sheetProds.length === 0) return { updated: 0, skipped: 'No products found' };
 
-  // ── KEY FIX: Match by marca+nombre against existing records (which have real codes from forecast/BOM) ──
+  // ââ KEY FIX: Match by marca+nombre against existing records (which have real codes from forecast/BOM) ââ
   const { data: existing } = await supabase
     .from('stock_productos')
     .select('id, codigo, nombre, marca')
     .range(0, 9999);
 
-  // Build lookup: "MARCA||NOMBRE_UPPER" → existing record
+  // Build lookup: "MARCA||NOMBRE_UPPER" â existing record
   const existByKey = {};
   const existByNombrePartial = {};
   for (const ex of (existing || [])) {
@@ -307,7 +244,7 @@ async function syncStocks(sheets, config, supabase) {
     }
 
     if (match) {
-      // Update existing record — preserves its real codigo
+      // Update existing record â preserves its real codigo
       updateBatch.push({
         id: match.id,
         stock_actual: sp.stock_actual,
@@ -316,7 +253,7 @@ async function syncStocks(sheets, config, supabase) {
         fecha_sync: sp.fecha_sync,
       });
     } else {
-      // No existing record — insert with synthetic code (fallback)
+      // No existing record â insert with synthetic code (fallback)
       const codigo = sp.nombre.substring(0, 30).replace(/\s+/g, '_').toUpperCase();
       insertBatch.push({ codigo, ...sp });
     }
@@ -339,7 +276,7 @@ async function syncStocks(sheets, config, supabase) {
   return { updated: updatedCount, inserted: insertedCount, total_sheet: sheetProds.length };
 }
 
-// ─── SYNC 3: Forecast ───
+// âââ SYNC 3: Forecast âââ
 async function syncForecast(sheets, config, supabase) {
   if (!config.sheet_id_forecast) return { updated: 0, skipped: 'No sheet_id_forecast configured' };
 
@@ -411,7 +348,7 @@ async function syncForecast(sheets, config, supabase) {
   return { updated: updates.length };
 }
 
-// ─── SYNC 4: BOM (BASE BRUTA — producto → insumos) ───
+// âââ SYNC 4: BOM (BASE BRUTA â producto â insumos) âââ
 async function syncBOM(sheets, config, supabase) {
   if (!config.sheet_id_bom) return { updated: 0, skipped: 'No sheet_id_bom configured' };
 
@@ -443,7 +380,7 @@ async function syncBOM(sheets, config, supabase) {
   if (rows.length < 2) return { updated: 0, skipped: 'BOM sheet not found (tried: ' + sheetNames.join(', ') + ')' };
   console.log(`BOM: using sheet '${usedSheet}' with ${rows.length} rows`);
 
-  // Row 0 = headers (normalize: spaces→underscores, remove accents for robust matching)
+  // Row 0 = headers (normalize: spacesâunderscores, remove accents for robust matching)
   const headers = (rows[0] || []).map(h => String(h || '').toUpperCase().trim());
   const norm = s => s.replace(/\s+/g, '_').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const headersNorm = headers.map(norm);
@@ -534,9 +471,9 @@ async function syncBOM(sheets, config, supabase) {
       let leadTimeDias = 90; // default
       if (tipoGlobal === 'frasco') leadTimeDias = 135; // 4.5 meses
       else if (tipoGlobal === 'estuche') leadTimeDias = 120; // 4 meses (China default)
-      else if (tipoGlobal === 'esencia') leadTimeDias = 45; // 30-60 días
+      else if (tipoGlobal === 'esencia') leadTimeDias = 45; // 30-60 dÃ­as
 
-      // Store insumo metadata (stock will come from "Stock al día" via syncStockInsumos)
+      // Store insumo metadata (stock will come from "Stock al dÃ­a" via syncStockInsumos)
       if (!insumoStock[codigo]) {
         insumoStock[codigo] = {
           codigo: codigo,
@@ -552,14 +489,14 @@ async function syncBOM(sheets, config, supabase) {
     }
   }
 
-  // Deduplicate BOM by (codigo_principal, codigo_insumo) — keep last occurrence (most complete data)
+  // Deduplicate BOM by (codigo_principal, codigo_insumo) â keep last occurrence (most complete data)
   const bomDedup = {};
   bomItems.forEach(item => {
     const key = item.codigo_principal + '||' + item.codigo_insumo;
     bomDedup[key] = item; // last wins
   });
   const bomUnique = Object.values(bomDedup);
-  console.log(`BOM: ${bomItems.length} raw rows → ${bomUnique.length} unique (principal,insumo) pairs from ${new Set(bomItems.map(b=>b.codigo_principal)).size} products`);
+  console.log(`BOM: ${bomItems.length} raw rows â ${bomUnique.length} unique (principal,insumo) pairs from ${new Set(bomItems.map(b=>b.codigo_principal)).size} products`);
 
   // Clear old BOM data and re-insert (avoids stale rows from previous syncs)
   try {
@@ -619,7 +556,7 @@ async function syncBOM(sheets, config, supabase) {
   return { bom_rows: bomCount, bom_raw: bomItems.length, bom_unique: bomUnique.length, bom_products: new Set(bomUnique.map(b=>b.codigo_principal)).size, insumos: insumoCount, sheet_used: usedSheet, with_stock: withStock, tipo_breakdown: byTipo, errors: bomErrors.length > 0 ? bomErrors : undefined };
 }
 
-// ─── SYNC 5: Stock Insumos from "Stock al día" pivot table ───
+// âââ SYNC 5: Stock Insumos from "Stock al dÃ­a" pivot table âââ
 async function syncStockInsumos(sheets, config, supabase) {
   if (!config.sheet_id_stock_sistema) return { updated: 0, skipped: 'No sheet_id_stock_sistema configured' };
 
@@ -641,7 +578,7 @@ async function syncStockInsumos(sheets, config, supabase) {
     config.sheet_name_stock_insumos,
     config.sheet_name_stock_sistema,
     'STOCK',
-    'Stock al día',
+    'Stock al dÃ­a',
     'Stock al dia',
     'Hoja 1',
     'Hoja1',
@@ -681,7 +618,7 @@ async function syncStockInsumos(sheets, config, supabase) {
   let headerRow;
   let dataStartRow;
   const row0first = String((rows[0] || [])[0] || '').toUpperCase().trim();
-  if (row0first === 'CODIGO' || row0first === 'CÓDIGO') {
+  if (row0first === 'CODIGO' || row0first === 'CÏDIGO') {
     // Simple table format: headers in row 0, data from row 1
     headerRow = rows[0] || [];
     dataStartRow = 1;
@@ -711,7 +648,7 @@ async function syncStockInsumos(sheets, config, supabase) {
   }
   console.log(`Stock Insumos: ${depositCols.length} depot columns, totalCol=${totalColIdx}, stockCol=${stockColIdx}, headers=${JSON.stringify(headerRow.slice(0,8))}`);
 
-  // Build codigo → stock map by summing all depot columns
+  // Build codigo â stock map by summing all depot columns
   const stockMap = {};
   for (let r = dataStartRow; r < rows.length; r++) {
     const row = rows[r];
@@ -745,25 +682,85 @@ async function syncStockInsumos(sheets, config, supabase) {
   const withStock = Object.values(stockMap).filter(v => v > 0).length;
   console.log(`Stock Insumos: ${totalCodes} unique codes, ${withStock} with stock > 0`);
 
+  // DIAGNOSTIC: Log sample codes from stockMap to see their exact format
+  const stockMapKeys = Object.keys(stockMap);
+  console.log(`Stock Insumos DIAG: first 20 stockMap keys: ${JSON.stringify(stockMapKeys.slice(0,20))}`);
+  console.log(`Stock Insumos DIAG: stockMap has '13897'? ${stockMap['13897'] !== undefined}, value=${stockMap['13897']}`);
+  console.log(`Stock Insumos DIAG: stockMap has '11400'? ${stockMap['11400'] !== undefined}, value=${stockMap['11400']}`);
+  console.log(`Stock Insumos DIAG: stockMap has '26128'? ${stockMap['26128'] !== undefined}, value=${stockMap['26128']}`);
+  // Check if codes might have different formats (leading zeros, decimals, etc.)
+  const sampleCodes = stockMapKeys.slice(0, 5);
+  for (const c of sampleCodes) {
+    console.log(`Stock Insumos DIAG: code='${c}' type=${typeof c} len=${c.length} charCodes=${[...c].map(ch=>ch.charCodeAt(0)).join(',')}`);
+  }
+
   // Get existing insumo codes from stock_insumos (only update those that exist from BOM sync)
-  const { data: existingInsumos } = await supabase
-    .from('stock_insumos')
-    .select('codigo');
-  const existingSet = new Set((existingInsumos || []).map(i => i.codigo));
+  // Paginate to get ALL rows (Supabase default limit is 1000)
+  let existingInsumos = [];
+  {
+    let page = 0, pageSize = 1000, hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabase.from('stock_insumos').select('codigo').range(page * pageSize, (page + 1) * pageSize - 1);
+      if (error) { console.error('Pagination error:', error.message); break; }
+      if (data && data.length > 0) { existingInsumos = existingInsumos.concat(data); page++; }
+      if (!data || data.length < pageSize) hasMore = false;
+    }
+  }
+  const existingCodes = (existingInsumos || []).map(i => i.codigo);
+  console.log(`Stock Insumos DIAG: ${existingCodes.length} codes in stock_insumos (from BOM)`);
+  console.log(`Stock Insumos DIAG: first 20 BOM codes: ${JSON.stringify(existingCodes.slice(0,20))}`);
+  console.log(`Stock Insumos DIAG: BOM has '13897'? ${existingCodes.includes('13897')}`);
+  console.log(`Stock Insumos DIAG: BOM has '11400'? ${existingCodes.includes('11400')}`);
+  // Check BOM code format too
+  const sampleBOM = existingCodes.slice(0, 5);
+  for (const c of sampleBOM) {
+    console.log(`Stock Insumos DIAG: BOM code='${c}' type=${typeof c} len=${c.length} charCodes=${[...c].map(ch=>ch.charCodeAt(0)).join(',')}`);
+  }
+
+  // Normalize function: strip leading zeros, remove .0 suffix, trim whitespace
+  const normCode = (c) => {
+    let s = String(c || '').trim();
+    // Remove trailing .0 (from float representation)
+    s = s.replace(/\.0+$/, '');
+    // Remove leading zeros (but keep at least one digit)
+    s = s.replace(/^0+(?=\d)/, '');
+    return s;
+  };
+
+  // Build normalized stockMap
+  const stockMapNorm = {};
+  for (const [k, v] of Object.entries(stockMap)) {
+    const nk = normCode(k);
+    if (!stockMapNorm[nk] || v > stockMapNorm[nk]) {
+      stockMapNorm[nk] = v;
+    }
+  }
+
+  // Build normalized existingSet
+  const existingSet = new Set(existingCodes.map(c => normCode(c)));
+  // Also build a map from normalized code -> original BOM code (for upsert)
+  const normToBomCode = {};
+  for (const c of existingCodes) {
+    normToBomCode[normCode(c)] = c;
+  }
+
+  console.log(`Stock Insumos DIAG: after normalization, stockMapNorm size=${Object.keys(stockMapNorm).length}, existingSet size=${existingSet.size}`);
+  console.log(`Stock Insumos DIAG: norm stockMap has '13897'? ${stockMapNorm['13897'] !== undefined}, value=${stockMapNorm['13897']}`);
+  console.log(`Stock Insumos DIAG: norm existingSet has '13897'? ${existingSet.has('13897')}`);
 
   let updatedCount = 0;
   let matchedCount = 0;
-  const codigos = Object.keys(stockMap);
+  const codigos = Object.keys(stockMapNorm);
 
   for (let i = 0; i < codigos.length; i += 200) {
     const chunk = codigos.slice(i, i + 200);
-    // Only update codes that exist in stock_insumos (from BOM sync)
+    // Only update codes that exist in stock_insumos (from BOM sync) using normalized matching
     const updates = chunk
       .filter(codigo => existingSet.has(codigo))
       .map(codigo => ({
-        codigo: codigo,
-        stock_fisico: stockMap[codigo],
-        stock_disponible: stockMap[codigo],
+        codigo: normToBomCode[codigo] || codigo, // Use the original BOM code for the upsert
+        stock_fisico: stockMapNorm[codigo],
+        stock_disponible: stockMapNorm[codigo],
         fecha_sync: new Date().toISOString(),
       }));
     matchedCount += updates.length;
@@ -775,13 +772,28 @@ async function syncStockInsumos(sheets, config, supabase) {
     else console.error('Stock Insumos upsert error:', error.message);
   }
 
-  const notMatched = totalCodes - matchedCount;
-  console.log(`Stock Insumos: ${matchedCount} matched BOM codes, ${notMatched} codes not in BOM`);
+  const notMatched = Object.keys(stockMapNorm).length - matchedCount;
+  console.log(`Stock Insumos: ${matchedCount} matched BOM codes (normalized), ${notMatched} codes not in BOM`);
+
+  // DIAGNOSTIC: Find specific unmatched codes that should match
+  const debugCodes = ['13897', '11400', '26128'];
+  for (const dc of debugCodes) {
+    const inStock = stockMapNorm[dc] !== undefined;
+    const inBOM = existingSet.has(dc);
+    console.log(`Stock Insumos DIAG: code ${dc} => inStockSheet=${inStock}(${stockMapNorm[dc]}), inBOM=${inBOM}, matched=${inStock && inBOM}`);
+  }
+
+  // Log some unmatched BOM codes to understand what's missing
+  const unmatchedBOM = existingCodes.filter(c => {
+    const n = normCode(c);
+    return stockMapNorm[n] === undefined;
+  }).slice(0, 30);
+  console.log(`Stock Insumos DIAG: first 30 unmatched BOM codes: ${JSON.stringify(unmatchedBOM)}`);
 
   return { updated: updatedCount, matched: matchedCount, not_in_bom: notMatched, total_codes: totalCodes, with_stock: withStock, sheet_used: usedSheet };
 }
 
-// ─── SYNC 6: Producciones planificadas (UNIFICADO) ───
+// âââ SYNC 6: Producciones planificadas (UNIFICADO) âââ
 async function syncProducciones(sheets, config, supabase) {
   if (!config.sheet_id_producciones) return { updated: 0, skipped: 'No sheet_id_producciones configured' };
 
@@ -864,7 +876,7 @@ async function syncProducciones(sheets, config, supabase) {
   return { updated: count, months_parsed: monthCols.length };
 }
 
-// ─── HANDLER ───
+// âââ HANDLER âââ
 export default async function handler(req, res) {
   let authorized = false;
   const authHeader = req.headers.authorization || '';
@@ -932,7 +944,7 @@ export default async function handler(req, res) {
     const bomRes = bomResult.status === 'fulfilled' ? bomResult.value : { error: bomResult.reason?.message };
     const prodRes = prodResult.status === 'fulfilled' ? prodResult.value : { error: prodResult.reason?.message };
 
-    // Step 4: Sync Stock Insumos from "Stock al día" (AFTER BOM so stock_insumos rows exist)
+    // Step 4: Sync Stock Insumos from "Stock al dÃ­a" (AFTER BOM so stock_insumos rows exist)
     let stockInsumosRes = { skipped: 'Not run' };
     try {
       stockInsumosRes = await syncStockInsumos(sheets, config, supabase);
