@@ -40,22 +40,30 @@ function getCurrentMonthCol() {
 async function syncStockSistema(sheets, config, supabase) {
   if (!config.sheet_id_stock_sistema) return { updated: 0, skipped: 'No sheet_id_stock_sistema configured' };
 
-  // 1. Read description mapping from existing stock_productos in Supabase (already has names from forecast sync)
+  // 1. Read "Descripcion" sheet to get code → name mapping
   let descMap = {};
   try {
-    const { data: existingProds } = await supabase.from('stock_productos').select('codigo, nombre').neq('nombre', '');
-    for (const p of (existingProds || [])) {
-      if (p.codigo && p.nombre) descMap[p.codigo] = p.nombre;
+    const descRes = await sheets.spreadsheets.values.get({
+      spreadsheetId: config.sheet_id_stock_sistema,
+      range: `'${config.sheet_name_descripcion || 'Descripcion'}'`,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+    });
+    const descRows = descRes.data.values || [];
+    // Row 0 = headers: CODIGO, AGRUPA, NOMBRE_COR, DETALLE
+    for (let r = 1; r < descRows.length; r++) {
+      const row = descRows[r];
+      const codigo = String(row[0] || '').trim();
+      const nombre = String(row[2] || row[3] || '').trim();
+      if (codigo) descMap[codigo] = nombre;
     }
-    console.log(`Stock Sistema: loaded ${Object.keys(descMap).length} product names from stock_productos`);
   } catch (e) {
-    console.warn('Could not load product names:', e.message);
+    console.warn('Could not read Descripcion sheet:', e.message);
   }
 
-  // 2. Read Stock pivot table: CODIGO | dep1 | dep2 | ... (sum all deposits)
+  // 2. Read "Stock Sistema" sheet — pivot table: CODIGO | dep1 | dep2 | ... | TOTAL
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: config.sheet_id_stock_sistema,
-    range: `'${config.sheet_name_stock_sistema || 'STOCK'}'`,
+    range: `'${config.sheet_name_stock_sistema || 'Stock Sistema'}'`,
     valueRenderOption: 'UNFORMATTED_VALUE',
   });
 
@@ -146,142 +154,148 @@ async function syncStockSistema(sheets, config, supabase) {
   // Don't insert "Sin asignar" products — only update existing ones with marca
   const notMatched = updates.length - matched.size;
 
-  // Return stockMap so handler can pass it to syncBOM for real stock values
-  console.log(`Stock Sistema: ${updatedCount} products updated, stockMap has ${Object.keys(stockMap).length} codes, sample: ${JSON.stringify(Object.entries(stockMap).slice(0, 3).map(([k,v]) => [k, v.stock_actual]))}`);
-  return { updated: updatedCount, matched_codes: matched.size, not_matched: notMatched, total_codes: updates.length, stock_map_size: Object.keys(stockMap).length, _stockMap: stockMap };
+  return { updated: updatedCount, matched_codes: matched.size, not_matched: notMatched, total_codes: updates.length };
 }
 
-// ─── SYNC 2: Ventas/Stock from "Datos" flat table ───
-// Sheet format: Polo | Segmento | Marca | Categoria | SKU | Descripción | Costo Neto | Precio de Venta |
-//   Ingresos UND Mes | Reservas UND Mes | Stock por sistema mes | Stock General UND | Stock $ Venta |
-//   Venta proyectada Mes UND | ... | Venta proyectada Mes+1 UND | ... | Venta proyectada Mes+2 UND | ...
+// ─── SYNC 2: Ventas/Stock/Cobertura (planilla original) ───
 async function syncStocks(sheets, config, supabase) {
   if (!config.sheet_id_stocks) return { updated: 0, skipped: 'No sheet_id_stocks configured' };
 
-  const sheetNames = [
-    config.sheet_name_stocks,
-    'Datos',
-    'Ventas stock cierre cobertura',
-  ].filter(Boolean);
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: config.sheet_id_stocks,
+    range: `'${config.sheet_name_stocks || 'Ventas stock cierre cobertura'}'`,
+    valueRenderOption: 'UNFORMATTED_VALUE',
+  });
 
-  let rows = [];
-  let usedSheet = '';
-  for (const sn of sheetNames) {
-    try {
-      const res = await sheets.spreadsheets.values.get({
-        spreadsheetId: config.sheet_id_stocks,
-        range: `'${sn}'`,
-        valueRenderOption: 'UNFORMATTED_VALUE',
-      });
-      rows = res.data.values || [];
-      if (rows.length >= 2) { usedSheet = sn; break; }
-    } catch (e) {
-      console.warn(`Stocks sheet '${sn}' not found, trying next...`);
-    }
-  }
-  if (rows.length < 2) return { updated: 0, skipped: 'No stocks sheet found (tried: ' + sheetNames.join(', ') + ')' };
-  console.log(`Stocks: using sheet '${usedSheet}' with ${rows.length} rows`);
+  const rows = res.data.values || [];
+  if (rows.length < 3) return { updated: 0, skipped: 'Not enough rows' };
 
-  // Row 0 = headers — find columns by name
-  const headers = (rows[0] || []).map(h => String(h || '').toUpperCase().trim());
-  const col = (keywords) => {
-    for (const kw of keywords) {
-      const idx = headers.findIndex(h => h.includes(kw));
-      if (idx >= 0) return idx;
-    }
-    return -1;
-  };
+  const headerRow = rows[0] || [];
+  const monthRow = rows[1] || [];
 
-  const iSKU = col(['SKU', 'CODIGO']);
-  const iDesc = col(['DESCRIPCI', 'NOMBRE', 'DETALLE']);
-  const iMarca = col(['MARCA']);
-  const iSegmento = col(['SEGMENTO']);
-  const iPolo = col(['POLO']);
-  const iStockGeneral = col(['STOCK GENERAL UND', 'STOCK GENERAL', 'STOCK UND']);
-  const iStockSistema = col(['STOCK POR SISTEMA', 'STOCK SISTEMA']);
-  const iVtaMes = col(['VENTA PROYECTADA MES UND', 'VENTA PROYECTADA MES', 'VENTAS']);
-  const iVtaMes1 = col(['VENTA PROYECTADA MES + 1 UND', 'MES + 1 UND', 'MES+1']);
-  const iVtaMes2 = col(['VENTA PROYECTADA MES + 2 UND', 'MES + 2 UND', 'MES+2']);
-
-  console.log('Stocks column indices:', JSON.stringify({ iSKU, iDesc, iMarca, iSegmento, iPolo, iStockGeneral, iStockSistema, iVtaMes, iVtaMes1, iVtaMes2 }));
-
-  if (iSKU < 0 && iDesc < 0) {
-    return { updated: 0, skipped: 'Could not find SKU or Description column in headers: ' + headers.slice(0, 15).join(', ') };
+  let stocksStartCol = -1, coberturaStartCol = -1, ventasStartCol = -1;
+  for (let i = 0; i < headerRow.length; i++) {
+    const h = String(headerRow[i] || '').toUpperCase().trim();
+    if (h.includes('VENTAS') && ventasStartCol === -1) ventasStartCol = i;
+    if (h.includes('STOCK') && h.includes('CIERRE')) stocksStartCol = i;
+    if (h.includes('COBERTURA')) coberturaStartCol = i;
   }
 
-  // Parse products
+  const currentMonth = getCurrentMonthCol();
+  const monthNames = ['ENE','FEB','MAR','ABR','MAY','JUN','JUL','AGO','SEP','OCT','NOV','DIC'];
+  const curMonthName = monthNames[currentMonth];
+
+  function findMonthCol(startCol) {
+    if (startCol < 0) return -1;
+    for (let i = startCol; i < Math.min(startCol + 15, monthRow.length); i++) {
+      const m = String(monthRow[i] || '').toUpperCase().trim().substring(0, 3);
+      if (m === curMonthName) return i;
+    }
+    return startCol + 1;
+  }
+
+  const ventasCol = findMonthCol(ventasStartCol);
+  const stockCol = findMonthCol(stocksStartCol);
+  const coberturaCol = findMonthCol(coberturaStartCol);
+
+  // Parse all products from the sheet
   const sheetProds = [];
-  for (let r = 1; r < rows.length; r++) {
+  for (let r = 2; r < rows.length; r++) {
     const row = rows[r];
-    const sku = iSKU >= 0 ? String(row[iSKU] || '').trim() : '';
-    const nombre = iDesc >= 0 ? String(row[iDesc] || '').trim() : '';
-    const marca = iMarca >= 0 ? String(row[iMarca] || '').trim() : '';
-    if (!nombre && !sku) continue;
-    if (marca === 'TOTAL' || marca === 'Total' || nombre === 'TOTAL') continue;
-
-    const stockGen = iStockGeneral >= 0 ? parseNum(row[iStockGeneral]) : 0;
-    const stockSis = iStockSistema >= 0 ? parseNum(row[iStockSistema]) : 0;
-    const vtaMes = iVtaMes >= 0 ? parseNum(row[iVtaMes]) : 0;
-    const vtaMes1 = iVtaMes1 >= 0 ? parseNum(row[iVtaMes1]) : 0;
-    const vtaMes2 = iVtaMes2 >= 0 ? parseNum(row[iVtaMes2]) : 0;
-
-    // venta_mensual_avg = average of available monthly projections
-    const vtaValues = [vtaMes, vtaMes1, vtaMes2].filter(v => v > 0);
-    const ventaAvg = vtaValues.length > 0 ? Math.round(vtaValues.reduce((a, b) => a + b, 0) / vtaValues.length) : 0;
-
-    // stock: prefer Stock General, fallback to Stock Sistema
-    const stock = stockGen > 0 ? stockGen : stockSis;
+    const marca = String(row[0] || '').trim();
+    const nombre = String(row[1] || '').trim();
+    if (!marca || !nombre || marca === 'TOTAL' || marca === 'Total') continue;
 
     sheetProds.push({
-      codigo: sku || nombre.substring(0, 30).replace(/\s+/g, '_').toUpperCase(),
       nombre,
       marca,
-      segmento: iSegmento >= 0 ? String(row[iSegmento] || '').trim() : null,
-      polo: iPolo >= 0 ? String(row[iPolo] || '').trim() : null,
-      stock_actual: stock,
-      venta_mensual_avg: ventaAvg,
+      stock_actual: parseNum(row[stockCol]),
+      venta_mensual_avg: parseNum(row[ventasCol]),
+      cobertura_meses: parseNum(row[coberturaCol]),
       fecha_sync: new Date().toISOString(),
     });
   }
 
-  if (sheetProds.length === 0) return { updated: 0, skipped: 'No products found in sheet' };
-  console.log(`Stocks: parsed ${sheetProds.length} products from '${usedSheet}', ${sheetProds.filter(p => p.venta_mensual_avg > 0).length} with ventas > 0`);
+  if (sheetProds.length === 0) return { updated: 0, skipped: 'No products found' };
 
-  // Match by SKU code against existing stock_productos records
-  const { data: existing } = await supabase.from('stock_productos').select('id, codigo, nombre, marca').range(0, 9999);
-  const existByCodigo = {};
-  const existByNombre = {};
+  // ── KEY FIX: Match by marca+nombre against existing records (which have real codes from forecast/BOM) ──
+  const { data: existing } = await supabase
+    .from('stock_productos')
+    .select('id, codigo, nombre, marca')
+    .range(0, 9999);
+
+  // Build lookup: "MARCA||NOMBRE_UPPER" → existing record
+  const existByKey = {};
+  const existByNombrePartial = {};
   for (const ex of (existing || [])) {
-    existByCodigo[ex.codigo] = ex;
+    const key = (ex.marca || '').toUpperCase() + '||' + (ex.nombre || '').toUpperCase().replace(/\s+/g, ' ').trim();
+    existByKey[key] = ex;
+    // Also index by just nombre (uppercase, trimmed) for partial matching
     const nKey = (ex.nombre || '').toUpperCase().replace(/\s+/g, ' ').trim();
-    if (nKey && !existByNombre[nKey]) existByNombre[nKey] = ex;
+    if (nKey && !existByNombrePartial[nKey]) existByNombrePartial[nKey] = ex;
   }
 
   let updatedCount = 0;
   let insertedCount = 0;
+  const updateBatch = [];
+  const insertBatch = [];
 
   for (const sp of sheetProds) {
-    // Match: 1) by codigo, 2) by nombre
-    let match = existByCodigo[sp.codigo];
+    const key = sp.marca.toUpperCase() + '||' + sp.nombre.toUpperCase().replace(/\s+/g, ' ').trim();
+    let match = existByKey[key];
+
+    // Fallback: try nombre-only match
     if (!match) {
       const nKey = sp.nombre.toUpperCase().replace(/\s+/g, ' ').trim();
-      match = existByNombre[nKey];
+      match = existByNombrePartial[nKey];
+    }
+
+    // Fallback: partial nombre match (one contains the other)
+    if (!match) {
+      const spUp = sp.nombre.toUpperCase();
+      for (const ex of (existing || [])) {
+        const exUp = (ex.nombre || '').toUpperCase();
+        if (exUp && spUp && (exUp.includes(spUp) || spUp.includes(exUp))) {
+          // Also check marca matches
+          if ((ex.marca || '').toUpperCase() === sp.marca.toUpperCase()) {
+            match = ex;
+            break;
+          }
+        }
+      }
     }
 
     if (match) {
-      const fields = { venta_mensual_avg: sp.venta_mensual_avg, fecha_sync: sp.fecha_sync };
-      // Only update stock_actual from this sheet if Stock Sistema didn't already set it
-      // (Stock Sistema has more reliable stock data from the ERP pivot)
-      const { error } = await supabase.from('stock_productos').update(fields).eq('id', match.id);
-      if (!error) updatedCount++;
+      // Update existing record — preserves its real codigo
+      updateBatch.push({
+        id: match.id,
+        stock_actual: sp.stock_actual,
+        venta_mensual_avg: sp.venta_mensual_avg,
+        cobertura_meses: sp.cobertura_meses,
+        fecha_sync: sp.fecha_sync,
+      });
     } else {
-      // Insert new product with all fields
-      const { error } = await supabase.from('stock_productos').upsert([sp], { onConflict: 'codigo,marca' });
-      if (!error) insertedCount++;
+      // No existing record — insert with synthetic code (fallback)
+      const codigo = sp.nombre.substring(0, 30).replace(/\s+/g, '_').toUpperCase();
+      insertBatch.push({ codigo, ...sp });
     }
   }
 
-  return { updated: updatedCount, inserted: insertedCount, total_sheet: sheetProds.length, sheet_used: usedSheet, with_ventas: sheetProds.filter(p => p.venta_mensual_avg > 0).length };
+  // Batch update matched records (preserving real codes)
+  for (const upd of updateBatch) {
+    const { id, ...fields } = upd;
+    const { error } = await supabase.from('stock_productos').update(fields).eq('id', id);
+    if (!error) updatedCount++;
+  }
+
+  // Insert unmatched as new (with synthetic code fallback)
+  if (insertBatch.length > 0) {
+    const { error } = await supabase.from('stock_productos').upsert(insertBatch, { onConflict: 'codigo,marca' });
+    if (!error) insertedCount = insertBatch.length;
+    else console.error('Insert unmatched stocks error:', error.message);
+  }
+
+  return { updated: updatedCount, inserted: insertedCount, total_sheet: sheetProds.length };
 }
 
 // ─── SYNC 3: Forecast ───
@@ -357,7 +371,7 @@ async function syncForecast(sheets, config, supabase) {
 }
 
 // ─── SYNC 4: BOM (BASE BRUTA — producto → insumos) ───
-async function syncBOM(sheets, config, supabase, realStockMap) {
+async function syncBOM(sheets, config, supabase) {
   if (!config.sheet_id_bom) return { updated: 0, skipped: 'No sheet_id_bom configured' };
 
   // Try configured sheet name, then fallbacks
@@ -463,47 +477,30 @@ async function syncBOM(sheets, config, supabase, realStockMap) {
         fecha_sync: new Date().toISOString(),
       });
 
-      // Classify insumo type based on DETALLE + CATEGORIA keywords
-      const catUp = categoria.toUpperCase();
+      // Classify insumo type based on DETALLE keywords
       let tipoGlobal = 'otro';
-      if (detUp.includes('ENVASE') || detUp.includes('FRASCO') || detUp.includes('FLACON') || detUp.includes('BOTELLA')
-          || catUp.includes('ENVASE') || catUp.includes('FRASCO') || catUp.includes('FLACON')) tipoGlobal = 'frasco';
-      else if (detUp.includes('CAJA') || detUp.includes('ESTUCHE') || detUp.includes('INTERIOR') || detUp.includes('DISPLAY')
-          || detUp.includes('PACKAGING') || detUp.includes('BLISTER') || detUp.includes('SOBRE')
-          || catUp.includes('ESTUCHE') || catUp.includes('CAJA') || catUp.includes('PACKAGING')) tipoGlobal = 'estuche';
-      else if (detUp.includes('ESENCIA') || detUp.includes('FRAGANCIA') || detUp.includes('PERFUME') || detUp.includes('PARFUM')
-          || detUp.includes('EAU DE') || detUp.includes('CONCENTRADO') || detUp.includes('COMPOUND') || detUp.includes('ACEITE')
-          || detUp.includes('BODY SPLASH') || detUp.includes('BODY MIST') || detUp.includes('COLONIA')
-          || catUp.includes('ESENCIA') || catUp.includes('FRAGANCIA') || catUp.includes('CONCENTRADO')) tipoGlobal = 'esencia';
-      else if (detUp.includes('TAPA') || detUp.includes('ROSCA') || catUp.includes('TAPA')) tipoGlobal = 'tapa';
-      else if (detUp.includes('COLLAR') || detUp.includes('ANILLO') || detUp.includes('ARO') || catUp.includes('COLLAR')) tipoGlobal = 'collar';
-      else if (detUp.includes('VALVULA') || detUp.includes('PUMP') || detUp.includes('BOMBA') || detUp.includes('SPRAY')
-          || detUp.includes('DOSIFICADOR') || detUp.includes('ATOMIZADOR')
-          || catUp.includes('VALVULA') || catUp.includes('PUMP')) tipoGlobal = 'valvula';
-      else if (detUp.includes('ETIQUETA') || detUp.includes('STICKER') || detUp.includes('LABEL')
-          || detUp.includes('SLEEVE') || detUp.includes('TERMOCONTRAIBLE')) tipoGlobal = 'etiqueta';
-      else if (detUp.includes('BLOTTER') || detUp.includes('MUESTRA') || detUp.includes('PROBADOR')
-          || detUp.includes('TESTER')) tipoGlobal = 'promo';
+      if (detUp.includes('ENVASE') || detUp.includes('FRASCO') || detUp.includes('FLACON') || detUp.includes('BOTELLA')) tipoGlobal = 'frasco';
+      else if ((detUp.includes('CAJA') && !detUp.includes('EMBALAJE')) || detUp.includes('ESTUCHE') || detUp.includes('INTERIOR') || detUp.includes('DISPLAY')) tipoGlobal = 'estuche';
+      else if (detUp.includes('ESENCIA') || detUp.includes('FRAGANCIA') || detUp.includes('PERFUME') || detUp.includes('PARFUM') || detUp.includes('EAU DE') || detUp.includes('CONCENTRADO') || detUp.includes('COMPOUND')) tipoGlobal = 'esencia';
+      else if (detUp.includes('TAPA')) tipoGlobal = 'tapa';
+      else if (detUp.includes('COLLAR')) tipoGlobal = 'collar';
+      else if (detUp.includes('VALVULA') || detUp.includes('PUMP') || detUp.includes('BOMBA')) tipoGlobal = 'valvula';
+      else if (detUp.includes('BLOTTER') || detUp.includes('ETIQUETA') || detUp.includes('STICKER')) tipoGlobal = 'otro';
 
       // Lead time by type (days)
       let leadTimeDias = 90; // default
       if (tipoGlobal === 'frasco') leadTimeDias = 135; // 4.5 meses
       else if (tipoGlobal === 'estuche') leadTimeDias = 120; // 4 meses (China default)
       else if (tipoGlobal === 'esencia') leadTimeDias = 45; // 30-60 días
-      else if (tipoGlobal === 'tapa' || tipoGlobal === 'collar' || tipoGlobal === 'valvula') leadTimeDias = 120;
-      else if (tipoGlobal === 'etiqueta') leadTimeDias = 30;
 
-      // Store insumo stock — use real stock from pivot table if available, fallback to BOM sheet value
-      const realStk = realStockMap && realStockMap[codigo] ? realStockMap[codigo].stock_actual : null;
-      const finalStockFisico = realStk != null ? realStk : stockFisico;
-      const finalDisponible = realStk != null ? realStk : disponible;
-      if (!insumoStock[codigo] || finalStockFisico > (insumoStock[codigo].stock_fisico || 0)) {
+      // Store insumo metadata (stock will come from "Stock al día" via syncStockInsumos)
+      if (!insumoStock[codigo]) {
         insumoStock[codigo] = {
           codigo: codigo,
           detalle: detalle.substring(0, 200),
           categoria: categoria,
-          stock_fisico: finalStockFisico,
-          stock_disponible: finalDisponible,
+          stock_fisico: 0,
+          stock_disponible: 0,
           tipo_insumo_global: tipoGlobal,
           lead_time_dias: leadTimeDias,
           fecha_sync: new Date().toISOString(),
@@ -552,10 +549,9 @@ async function syncBOM(sheets, config, supabase, realStockMap) {
   // Upsert stock_insumos
   const insumoArr = Object.values(insumoStock);
   const withStock = insumoArr.filter(i => i.stock_fisico > 0).length;
-  const withRealStock = insumoArr.filter(i => realStockMap && realStockMap[i.codigo]).length;
   const byTipo = {};
   insumoArr.forEach(i => { byTipo[i.tipo_insumo_global] = (byTipo[i.tipo_insumo_global] || 0) + 1; });
-  console.log(`BOM insumos: ${insumoArr.length} unique, ${withStock} with stock > 0, ${withRealStock} matched real stock map (map has ${realStockMap ? Object.keys(realStockMap).length : 0} codes), types: ${JSON.stringify(byTipo)}`);
+  console.log(`BOM insumos: ${insumoArr.length} unique, ${withStock} with stock > 0, types: ${JSON.stringify(byTipo)}`);
 
   // Clear old insumos and re-insert
   try {
@@ -577,10 +573,124 @@ async function syncBOM(sheets, config, supabase, realStockMap) {
     }
   }
 
-  return { bom_rows: bomCount, bom_raw: bomItems.length, bom_unique: bomUnique.length, bom_products: new Set(bomUnique.map(b=>b.codigo_principal)).size, insumos: insumoCount, sheet_used: usedSheet, with_stock: withStock, with_real_stock: withRealStock, real_stock_map_size: realStockMap ? Object.keys(realStockMap).length : 0, tipo_breakdown: byTipo, errors: bomErrors.length > 0 ? bomErrors : undefined };
+  return { bom_rows: bomCount, bom_raw: bomItems.length, bom_unique: bomUnique.length, bom_products: new Set(bomUnique.map(b=>b.codigo_principal)).size, insumos: insumoCount, sheet_used: usedSheet, with_stock: withStock, tipo_breakdown: byTipo, errors: bomErrors.length > 0 ? bomErrors : undefined };
 }
 
-// ─── SYNC 5: Producciones planificadas (UNIFICADO) ───
+// ─── SYNC 5: Stock Insumos from "Stock al día" pivot table ───
+async function syncStockInsumos(sheets, config, supabase) {
+  if (!config.sheet_id_stock_sistema) return { updated: 0, skipped: 'No sheet_id_stock_sistema configured' };
+
+  const sheetNames = [
+    config.sheet_name_stock_insumos,
+    'Stock al día',
+    'Stock al dia',
+    'STOCK AL DIA',
+    'Stock al Día',
+  ].filter(Boolean);
+
+  let rows = [];
+  let usedSheet = '';
+  for (const sn of sheetNames) {
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: config.sheet_id_stock_sistema,
+        range: `'${sn}'`,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+      });
+      rows = res.data.values || [];
+      if (rows.length >= 3) { usedSheet = sn; break; }
+    } catch (e) {
+      console.warn(`Stock Insumos sheet '${sn}' not found, trying next...`);
+    }
+  }
+  if (rows.length < 3) return { updated: 0, skipped: 'Stock al día sheet not found' };
+  console.log(`Stock Insumos: using sheet '${usedSheet}' with ${rows.length} rows`);
+
+  // Pivot table format:
+  // Row 0: "SUM de STOCK" | "DEPOSITO" | ...
+  // Row 1: "CODIGO" | 100 | 105 | 120 | ... (depot IDs as numbers)
+  // Row 2+: codigo | qty | qty | ...
+  const headerRow = rows[1] || [];
+
+  // Find all numeric depot columns (skip CODIGO col 0 and any TOTAL column)
+  const depositCols = [];
+  let totalColIdx = -1;
+  for (let i = 0; i < headerRow.length; i++) {
+    const h = String(headerRow[i] || '').toUpperCase().trim();
+    if (h === 'TOTAL' || h === 'TOTAL GENERAL') {
+      totalColIdx = i;
+    } else if (i > 0 && !isNaN(Number(headerRow[i]))) {
+      depositCols.push(i);
+    }
+  }
+  console.log(`Stock Insumos: ${depositCols.length} depot columns, totalCol=${totalColIdx}`);
+
+  // Build codigo → stock map by summing all depot columns
+  const stockMap = {};
+  for (let r = 2; r < rows.length; r++) {
+    const row = rows[r];
+    const codigoRaw = row[0];
+    if (codigoRaw == null || codigoRaw === '' || String(codigoRaw).toUpperCase() === 'TOTAL') continue;
+    const codigo = String(codigoRaw).trim();
+
+    let stockTotal = 0;
+    if (totalColIdx >= 0 && row.length > totalColIdx && row[totalColIdx] != null) {
+      stockTotal = parseNum(row[totalColIdx]);
+    } else {
+      for (const c of depositCols) {
+        if (c < row.length && row[c] != null) {
+          stockTotal += parseNum(row[c]);
+        }
+      }
+    }
+
+    // Keep max stock per codigo (in case of duplicates)
+    if (!stockMap[codigo] || stockTotal > stockMap[codigo]) {
+      stockMap[codigo] = stockTotal;
+    }
+  }
+
+  const totalCodes = Object.keys(stockMap).length;
+  const withStock = Object.values(stockMap).filter(v => v > 0).length;
+  console.log(`Stock Insumos: ${totalCodes} unique codes, ${withStock} with stock > 0`);
+
+  // Get existing insumo codes from stock_insumos (only update those that exist from BOM sync)
+  const { data: existingInsumos } = await supabase
+    .from('stock_insumos')
+    .select('codigo');
+  const existingSet = new Set((existingInsumos || []).map(i => i.codigo));
+
+  let updatedCount = 0;
+  let matchedCount = 0;
+  const codigos = Object.keys(stockMap);
+
+  for (let i = 0; i < codigos.length; i += 200) {
+    const chunk = codigos.slice(i, i + 200);
+    // Only update codes that exist in stock_insumos (from BOM sync)
+    const updates = chunk
+      .filter(codigo => existingSet.has(codigo))
+      .map(codigo => ({
+        codigo: codigo,
+        stock_fisico: stockMap[codigo],
+        stock_disponible: stockMap[codigo],
+        fecha_sync: new Date().toISOString(),
+      }));
+    matchedCount += updates.length;
+    if (updates.length === 0) continue;
+    const { error } = await supabase
+      .from('stock_insumos')
+      .upsert(updates, { onConflict: 'codigo', ignoreDuplicates: false });
+    if (!error) updatedCount += updates.length;
+    else console.error('Stock Insumos upsert error:', error.message);
+  }
+
+  const notMatched = totalCodes - matchedCount;
+  console.log(`Stock Insumos: ${matchedCount} matched BOM codes, ${notMatched} codes not in BOM`);
+
+  return { updated: updatedCount, matched: matchedCount, not_in_bom: notMatched, total_codes: totalCodes, with_stock: withStock, sheet_used: usedSheet };
+}
+
+// ─── SYNC 6: Producciones planificadas (UNIFICADO) ───
 async function syncProducciones(sheets, config, supabase) {
   if (!config.sheet_id_producciones) return { updated: 0, skipped: 'No sheet_id_producciones configured' };
 
@@ -713,19 +823,23 @@ export default async function handler(req, res) {
     await supabase.rpc('recalculate_cobertura');
 
     // Step 3: Sync BOM + Producciones in parallel
-    // Pass stockMap to syncBOM so it writes real stock values directly into stock_insumos
-    // (avoids needing a separate update step that would cause timeout)
-    const realStockMap = stockSistemaRes._stockMap || null;
-    if (stockSistemaRes._stockMap) delete stockSistemaRes._stockMap;
     const [bomResult, prodResult] = await Promise.allSettled([
-      syncBOM(sheets, config, supabase, realStockMap),
+      syncBOM(sheets, config, supabase),
       syncProducciones(sheets, config, supabase),
     ]);
 
     const bomRes = bomResult.status === 'fulfilled' ? bomResult.value : { error: bomResult.reason?.message };
     const prodRes = prodResult.status === 'fulfilled' ? prodResult.value : { error: prodResult.reason?.message };
 
-    const allErrors = [stockSistemaRes.error, stockRes.error, forecastRes.error, bomRes.error, prodRes.error].filter(Boolean);
+    // Step 4: Sync Stock Insumos from "Stock al día" (AFTER BOM so stock_insumos rows exist)
+    let stockInsumosRes = { skipped: 'Not run' };
+    try {
+      stockInsumosRes = await syncStockInsumos(sheets, config, supabase);
+    } catch (e) {
+      stockInsumosRes = { error: e.message };
+    }
+
+    const allErrors = [stockSistemaRes.error, stockRes.error, forecastRes.error, bomRes.error, prodRes.error, stockInsumosRes.error].filter(Boolean);
     const totalUpdated = (stockSistemaRes.updated || 0) + (stockRes.updated || 0) + (forecastRes.updated || 0);
 
     await supabase.from('stock_sync_log').insert({
@@ -741,6 +855,7 @@ export default async function handler(req, res) {
       stocks: stockRes,
       forecast: forecastRes,
       bom: bomRes,
+      stock_insumos: stockInsumosRes,
       producciones: prodRes,
     });
   } catch (err) {
