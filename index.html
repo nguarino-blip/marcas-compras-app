@@ -1976,12 +1976,16 @@ async function renderMRPPage(c, _rv) {
                 || cat.includes('ESENCIA') || cat.includes('FRAGANCIA')) esEsencia = true;
           }
 
+          const esCritico = esFrasco || esEstuche || esEsencia;
+
           // Guardar stock del tipo (mínimo si hay varios del mismo tipo)
           if (esFrasco) insBot = insBot === null ? stk : Math.min(insBot, stk);
           if (esEstuche) insEst = insEst === null ? stk : Math.min(insEst, stk);
           if (esEsencia) insEse = insEse === null ? stk : Math.min(insEse, stk);
 
-          if (rinde < producibles) {
+          // Solo considerar Envase, Esencia y Estuche/Caja para producibilidad
+          // Excluir tapas, collares, válvulas, blotters, etiquetas, etc.
+          if (esCritico && rinde < producibles) {
             producibles = rinde;
             cuello = { cod: comp.codigo_insumo, det: comp.detalle_insumo || '', stk, qty, rinde };
           }
