@@ -377,8 +377,10 @@ async function syncBOM(sheets, config, supabase) {
   // Try configured sheet name, then fallbacks
   const sheetNames = [
     config.sheet_name_bom,
-    'BASE BRUTA',
+    'NUEVA BASE BRUTA',
     'Nueva base bruta',
+    'Nueva Base Bruta',
+    'BASE BRUTA',
     'Base Bruta',
   ].filter(Boolean);
 
