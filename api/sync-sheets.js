@@ -786,11 +786,21 @@ export default async function handler(req, res) {
   if (!authorized && req.headers['x-api-key'] === process.env.INTERNAL_API_KEY) authorized = true;
   if (!authorized && authHeader.startsWith('Bearer ')) {
     try {
-      const sb = getSupabase();
       const token = authHeader.replace('Bearer ', '');
-      const { data: { user }, error } = await sb.auth.getUser(token);
-      if (user && !error) authorized = true;
-    } catch (_) {}
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+      const key = anonKey || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+      if (url && key) {
+        const userClient = createClient(url, key, {
+          global: { headers: { Authorization: `Bearer ${token}` } }
+        });
+        const { data: { user }, error } = await userClient.auth.getUser();
+        if (user && !error) authorized = true;
+        else console.log('Auth check failed:', error?.message || 'no user returned');
+      } else {
+        console.log('Auth skip: missing URL or key');
+      }
+    } catch (e) { console.log('Auth exception:', e.message); }
   }
 
   if (!authorized) return res.status(401).json({ error: 'Unauthorized' });
