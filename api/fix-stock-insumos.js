@@ -104,7 +104,14 @@ export default async function handler(req, res) {
       diag.debug[dc] = { rawVal: stockMap[dc], normVal: stockMapNorm[dc], matchingRawKeys: rawKeys };
     }
 
-    const { data: existingInsumos, error: fetchErr } = await supabase.from('stock_insumos').select('codigo');
+    let existingInsumos = [], fetchErr = null;
+    let page = 0, pageSize = 1000, hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabase.from('stock_insumos').select('codigo').range(page * pageSize, (page + 1) * pageSize - 1);
+      if (error) { fetchErr = error; break; }
+      if (data && data.length > 0) { existingInsumos = existingInsumos.concat(data); page++; }
+      if (!data || data.length < pageSize) hasMore = false;
+    }
     if (fetchErr) return res.status(500).json({ error: fetchErr.message });
     const existingCodes = (existingInsumos || []).map(i => i.codigo);
     diag.steps.push('BOM codes: ' + existingCodes.length);
@@ -154,3 +161,4 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: err.message, diag });
   }
 }
+
