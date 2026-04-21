@@ -580,12 +580,14 @@ async function syncBOM(sheets, config, supabase) {
 async function syncStockInsumos(sheets, config, supabase) {
   if (!config.sheet_id_stock_sistema) return { updated: 0, skipped: 'No sheet_id_stock_sistema configured' };
 
+  // Uses the same sheet tab as syncStockSistema (typically "STOCK")
+  // The "Stock al día" spreadsheet has a "STOCK" tab with all codes (PT + insumos)
   const sheetNames = [
     config.sheet_name_stock_insumos,
+    config.sheet_name_stock_sistema,
+    'STOCK',
     'Stock al día',
     'Stock al dia',
-    'STOCK AL DIA',
-    'Stock al Día',
   ].filter(Boolean);
 
   let rows = [];
