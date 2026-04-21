@@ -1979,9 +1979,9 @@ async function renderMRPPage(c, _rv) {
           const esCritico = esFrasco || esEstuche || esEsencia;
 
           // Guardar stock del tipo (mínimo si hay varios del mismo tipo)
-          if (esFrasco) insBot = insBot === null ? stk : Math.min(insBot, stk);
-          if (esEstuche) insEst = insEst === null ? stk : Math.min(insEst, stk);
-          if (esEsencia) insEse = insEse === null ? stk : Math.min(insEse, stk);
+          if (esFrasco) insBot = insBot === null ? stk : Math.max(insBot, stk);
+          if (esEstuche) insEst = insEst === null ? stk : Math.max(insEst, stk);
+          if (esEsencia) insEse = insEse === null ? stk : Math.max(insEse, stk);
 
           // Solo considerar Envase, Esencia y Estuche/Caja para producibilidad
           // Excluir tapas, collares, válvulas, blotters, etiquetas, etc.
