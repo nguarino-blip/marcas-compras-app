@@ -40,35 +40,76 @@ function getCurrentMonthCol() {
 async function syncStockSistema(sheets, config, supabase) {
   if (!config.sheet_id_stock_sistema) return { updated: 0, skipped: 'No sheet_id_stock_sistema configured' };
 
-  // 1. Read "Descripcion" sheet to get code → name mapping
-  let descMap = {};
+  // Discover all tabs in the spreadsheet
+  let allTabs = [];
   try {
-    const descRes = await sheets.spreadsheets.values.get({
+    const meta = await sheets.spreadsheets.get({
       spreadsheetId: config.sheet_id_stock_sistema,
-      range: `'${config.sheet_name_descripcion || 'Descripcion'}'`,
-      valueRenderOption: 'UNFORMATTED_VALUE',
+      fields: 'sheets.properties.title',
     });
-    const descRows = descRes.data.values || [];
-    // Row 0 = headers: CODIGO, AGRUPA, NOMBRE_COR, DETALLE
-    for (let r = 1; r < descRows.length; r++) {
-      const row = descRows[r];
-      const codigo = String(row[0] || '').trim();
-      const nombre = String(row[2] || row[3] || '').trim();
-      if (codigo) descMap[codigo] = nombre;
-    }
+    allTabs = (meta.data.sheets || []).map(s => s.properties.title);
+    console.log(`Stock Sistema: spreadsheet tabs: ${JSON.stringify(allTabs)}`);
   } catch (e) {
-    console.warn('Could not read Descripcion sheet:', e.message);
+    console.error('Stock Sistema: failed to get spreadsheet metadata:', e.message);
   }
 
-  // 2. Read "Stock Sistema" sheet — pivot table: CODIGO | dep1 | dep2 | ... | TOTAL
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: config.sheet_id_stock_sistema,
-    range: `'${config.sheet_name_stock_sistema || 'Stock Sistema'}'`,
-    valueRenderOption: 'UNFORMATTED_VALUE',
-  });
+  // 1. Read "Descripcion" sheet to get code → name mapping
+  let descMap = {};
+  const descNames = [config.sheet_name_descripcion, 'Descripcion', 'Descripción', ...allTabs.filter(t => t.toLowerCase().includes('descr'))].filter(Boolean);
+  for (const dn of descNames) {
+    try {
+      const descRes = await sheets.spreadsheets.values.get({
+        spreadsheetId: config.sheet_id_stock_sistema,
+        range: `'${dn}'`,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+      });
+      const descRows = descRes.data.values || [];
+      if (descRows.length > 1) {
+        for (let r = 1; r < descRows.length; r++) {
+          const row = descRows[r];
+          const codigo = String(row[0] || '').trim();
+          const nombre = String(row[2] || row[3] || '').trim();
+          if (codigo) descMap[codigo] = nombre;
+        }
+        console.log(`Stock Sistema: loaded ${Object.keys(descMap).length} descriptions from '${dn}'`);
+        break;
+      }
+    } catch (e) {
+      console.warn(`Could not read Descripcion sheet '${dn}':`, e.message);
+    }
+  }
 
-  const rows = res.data.values || [];
-  if (rows.length < 3) return { updated: 0, skipped: 'Not enough rows in Stock Sistema' };
+  // 2. Read stock sheet — pivot table: CODIGO | dep1 | dep2 | ... | TOTAL
+  const stockNames = [
+    config.sheet_name_stock_sistema,
+    'Stock Sistema',
+    'STOCK',
+    'Stock al día',
+    'Stock al dia',
+    'Hoja 1',
+    'Hoja1',
+    'Sheet1',
+    ...allTabs.filter(t => !descNames.includes(t)),
+  ].filter(Boolean);
+
+  let rows = [];
+  let usedStockSheet = '';
+  for (const sn of stockNames) {
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: config.sheet_id_stock_sistema,
+        range: `'${sn}'`,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+      });
+      rows = res.data.values || [];
+      if (rows.length >= 3) { usedStockSheet = sn; break; }
+    } catch (e) {
+      console.warn(`Stock Sistema sheet '${sn}' not found, trying next...`);
+    }
+  }
+  console.log(`Stock Sistema: using sheet '${usedStockSheet}' with ${rows.length} rows`);
+  if (rows.length >= 1) console.log(`Stock Sistema: row0=${JSON.stringify((rows[0]||[]).slice(0,5))}, row1=${JSON.stringify((rows[1]||[]).slice(0,5))}`);
+  if (rows.length < 3) return { updated: 0, skipped: `Not enough rows. Tabs: ${JSON.stringify(allTabs)}` };
 
   // Row 0: "SUM de STOCK" | "DEPOSITO" | ...
   // Row 1: "CODIGO" | dep_100 | dep_105 | ... | (empty col?) | "TOTAL"
@@ -582,15 +623,36 @@ async function syncBOM(sheets, config, supabase) {
 async function syncStockInsumos(sheets, config, supabase) {
   if (!config.sheet_id_stock_sistema) return { updated: 0, skipped: 'No sheet_id_stock_sistema configured' };
 
-  // Uses the same sheet tab as syncStockSistema (typically "STOCK")
-  // The "Stock al día" spreadsheet has a "STOCK" tab with all codes (PT + insumos)
-  const sheetNames = [
+  // First, discover all tab names in the spreadsheet
+  let allTabs = [];
+  try {
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId: config.sheet_id_stock_sistema,
+      fields: 'sheets.properties.title',
+    });
+    allTabs = (meta.data.sheets || []).map(s => s.properties.title);
+    console.log(`Stock Insumos: spreadsheet has tabs: ${JSON.stringify(allTabs)}`);
+  } catch (e) {
+    console.error('Stock Insumos: failed to get spreadsheet metadata:', e.message);
+  }
+
+  // Preferred tab names to try first, then fall back to all discovered tabs
+  const preferredNames = [
     config.sheet_name_stock_insumos,
     config.sheet_name_stock_sistema,
     'STOCK',
     'Stock al día',
     'Stock al dia',
+    'Hoja 1',
+    'Hoja1',
+    'Sheet1',
   ].filter(Boolean);
+
+  // Build ordered list: preferred names first, then any remaining discovered tabs
+  const sheetNames = [...preferredNames];
+  for (const tab of allTabs) {
+    if (!sheetNames.includes(tab)) sheetNames.push(tab);
+  }
 
   let rows = [];
   let usedSheet = '';
@@ -607,31 +669,51 @@ async function syncStockInsumos(sheets, config, supabase) {
       console.warn(`Stock Insumos sheet '${sn}' not found, trying next...`);
     }
   }
-  if (rows.length < 3) return { updated: 0, skipped: 'Stock al día sheet not found' };
+  if (rows.length < 3) return { updated: 0, skipped: `Stock sheet not found. Tabs in spreadsheet: ${JSON.stringify(allTabs)}` };
   console.log(`Stock Insumos: using sheet '${usedSheet}' with ${rows.length} rows`);
+  if (rows.length >= 1) console.log(`Stock Insumos: row0=${JSON.stringify((rows[0]||[]).slice(0,6))}`);
+  if (rows.length >= 2) console.log(`Stock Insumos: row1=${JSON.stringify((rows[1]||[]).slice(0,6))}`);
+  if (rows.length >= 3) console.log(`Stock Insumos: row2=${JSON.stringify((rows[2]||[]).slice(0,6))}`);
 
-  // Pivot table format:
-  // Row 0: "SUM de STOCK" | "DEPOSITO" | ...
-  // Row 1: "CODIGO" | 100 | 105 | 120 | ... (depot IDs as numbers)
-  // Row 2+: codigo | qty | qty | ...
-  const headerRow = rows[1] || [];
+  // Detect header format: could be pivot table or simple table
+  // Pivot: Row 0: "SUM de STOCK" | "DEPOSITO" | ...  Row 1: "CODIGO" | 100 | 105 | ...
+  // Simple: Row 0: "CODIGO" | "STOCK" | ...  Row 1+: data
+  let headerRow;
+  let dataStartRow;
+  const row0first = String((rows[0] || [])[0] || '').toUpperCase().trim();
+  if (row0first === 'CODIGO' || row0first === 'CÓDIGO') {
+    // Simple table format: headers in row 0, data from row 1
+    headerRow = rows[0] || [];
+    dataStartRow = 1;
+    console.log('Stock Insumos: detected SIMPLE table format (headers in row 0)');
+  } else {
+    // Pivot table format: headers in row 1, data from row 2
+    headerRow = rows[1] || [];
+    dataStartRow = 2;
+    console.log('Stock Insumos: detected PIVOT table format (headers in row 1)');
+  }
 
   // Find all numeric depot columns (skip CODIGO col 0 and any TOTAL column)
+  // Also detect named stock columns like "STOCK", "CANTIDAD", "QTY"
   const depositCols = [];
   let totalColIdx = -1;
+  let stockColIdx = -1;
+  const codigoColIdx = 0;
   for (let i = 0; i < headerRow.length; i++) {
     const h = String(headerRow[i] || '').toUpperCase().trim();
     if (h === 'TOTAL' || h === 'TOTAL GENERAL') {
       totalColIdx = i;
+    } else if (h === 'STOCK' || h === 'CANTIDAD' || h === 'QTY' || h === 'STOCK TOTAL' || h === 'STOCK_TOTAL') {
+      stockColIdx = i;
     } else if (i > 0 && !isNaN(Number(headerRow[i]))) {
       depositCols.push(i);
     }
   }
-  console.log(`Stock Insumos: ${depositCols.length} depot columns, totalCol=${totalColIdx}`);
+  console.log(`Stock Insumos: ${depositCols.length} depot columns, totalCol=${totalColIdx}, stockCol=${stockColIdx}, headers=${JSON.stringify(headerRow.slice(0,8))}`);
 
   // Build codigo → stock map by summing all depot columns
   const stockMap = {};
-  for (let r = 2; r < rows.length; r++) {
+  for (let r = dataStartRow; r < rows.length; r++) {
     const row = rows[r];
     const codigoRaw = row[0];
     if (codigoRaw == null || codigoRaw === '' || String(codigoRaw).toUpperCase() === 'TOTAL') continue;
@@ -640,12 +722,17 @@ async function syncStockInsumos(sheets, config, supabase) {
     let stockTotal = 0;
     if (totalColIdx >= 0 && row.length > totalColIdx && row[totalColIdx] != null) {
       stockTotal = parseNum(row[totalColIdx]);
-    } else {
+    } else if (stockColIdx >= 0 && row.length > stockColIdx && row[stockColIdx] != null) {
+      stockTotal = parseNum(row[stockColIdx]);
+    } else if (depositCols.length > 0) {
       for (const c of depositCols) {
         if (c < row.length && row[c] != null) {
           stockTotal += parseNum(row[c]);
         }
       }
+    } else if (row.length > 1 && row[1] != null) {
+      // Fallback: if no depot/total/stock column found, use column 1
+      stockTotal = parseNum(row[1]);
     }
 
     // Keep max stock per codigo (in case of duplicates)
