@@ -74,7 +74,70 @@ async function syncStockSistema(sheets, config, supabase) {
         console.log(`Stock Sistema: loaded ${Object.keys(descMap).length} descriptions from '${dn}'`);
         break;
       }
-    } catch (e)  // Strategy: use TOTAL column if the row has data there, otherwise sum deposit columns
+    } catch (e) {
+      console.warn(`Could not read Descripcion sheet '${dn}':`, e.message);
+    }
+  }
+
+  // 2. Read stock sheet â pivot table: CODIGO | dep1 | dep2 | ... | TOTAL
+  const stockNames = [
+    config.sheet_name_stock_sistema,
+    'Stock Sistema',
+    'STOCK',
+    'Stock al dÃ­a',
+    'Stock al die',
+    'Hoja 1',
+    'Hoja1',
+    'Sheet1',
+    ...allTabs.filter(t => !descNames.includes(t)),
+  ].filter(Boolean);
+
+  let rows = [];
+  let usedStockSheet = '';
+  for (const sn of stockNames) {
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId: config.sheet_id_stock_sistema,
+        range: `'${sn}'`,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+      });
+      rows = res.data.values || [];
+      if (rows.length >= 3) { usedStockSheet = sn; break; }
+    } catch (e) {
+      console.warn(`Stock Sistema sheet '${sn}' not found, trying next...`);
+    }
+  }
+  console.log(`Stock Sistema: using sheet '${usedStockSheet}' with ${rows.length} rows`);
+  if (rows.length >= 1) console.log(`Stock Sistema: row0=${JSON.stringify((rows[0]||[]).slice(0,5))}, row1=${JSON.stringify((rows[1]||[]).slice(0,5))}`);
+  if (rows.length < 3) return { updated: 0, skipped: `Not enough rows. Tabs: ${JSON.stringify(allTabs)}` };
+
+  // Row 0: "SUM de STOCK" | "DEPOSITO" | ...
+  // Row 1: "CODIGO" | dep_100 | dep_105 | ... | (empty col?) | "TOTAL"
+  // Row 2+: codigo | qty_dep1 | qty_dep2 | ... | total
+  const headerRow = rows[1] || [];
+
+  // Find TOTAL column and deposit columns (numeric headers = deposit IDs)
+  let totalColIdx = -1;
+  const depositCols = [];
+  for (let i = 0; i < headerRow.length; i++) {
+    const h = String(headerRow[i] || '').toUpperCase().trim();
+    if (h === 'TOTAL' || h === 'TOTAL GENERAL') {
+      totalColIdx = i;
+    } else if (i > 0 && !isNaN(Number(headerRow[i]))) {
+      depositCols.push(i);
+    }
+  }
+
+  console.log(`Stock Sistema: totalCol=${totalColIdx}, depositCols=${depositCols.length}, rows=${rows.length}`);
+
+  const updates = [];
+  for (let r = 2; r < rows.length; r++) {
+    const row = rows[r];
+    const codigoRaw = row[0];
+    if (codigoRaw == null || codigoRaw === '' || String(codigoRaw).toUpperCase() === 'TOTAL') continue;
+    const codigo = String(codigoRaw).trim();
+
+    // Strategy: use TOTAL column if the row has data there, otherwise sum deposit columns
     let stockTotal = 0;
     if (totalColIdx >= 0 && row.length > totalColIdx && row[totalColIdx] != null) {
       stockTotal = parseNum(row[totalColIdx]);
@@ -618,7 +681,7 @@ async function syncStockInsumos(sheets, config, supabase) {
   let headerRow;
   let dataStartRow;
   const row0first = String((rows[0] || [])[0] || '').toUpperCase().trim();
-  if (row0first === 'CODIGO' || row0first === 'CÏDIGO') {
+  if (row0first === 'CODIGO' || row0first === 'CÃDIGO') {
     // Simple table format: headers in row 0, data from row 1
     headerRow = rows[0] || [];
     dataStartRow = 1;
