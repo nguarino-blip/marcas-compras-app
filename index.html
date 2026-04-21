@@ -2198,6 +2198,14 @@ async function renderMRPPage(c, _rv) {
     // ALL products for display (sorted by demanda, top sellers first)
     const fabTop = fabActivos;
 
+    // Store data globally for lazy rendering (pagination)
+    const MRP_PAGE = 50;
+    window._mrpFabAll = fabTop;
+    window._mrpCompraAll = compraTop;
+    window._mrpInsAll = insCompra;
+    window._mrpFabShown = MRP_PAGE;
+    window._mrpHelpers = { insNum, cobClr, fmtDate, fmtMes };
+
     c.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <h2 style="color:var(--gold);font-size:20px;">🏭 MRP — Plan de Abastecimiento</h2>
@@ -2315,30 +2323,13 @@ async function renderMRPPage(c, _rv) {
                   <th style="padding:2px 3px;text-align:center;font-size:9px;background:var(--bg2);" title="Esencia/Fragancia">Ese</th>
                 </tr>
               </thead><tbody>
-              ${fabTop.map((p, i) => `
-                <tr style="border-bottom:1px solid var(--border);${i<40?'':'opacity:0.85;'}${p.urg>=3?'background:rgba(255,50,50,0.08);':p.urg>=2?'background:rgba(255,165,0,0.05);':''}" data-marca="${p.marca}" data-urg="${p.urg}" data-abc="${p.abc}">
-                  <td style="padding:2px 4px;font-family:monospace;font-size:9px;color:var(--txt2);" title="${p.codigo}">${p.codigo}</td>
-                  <td style="padding:2px 4px;min-width:220px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.nombre}${!p.hasBOM?' (sin BOM)':''}">${(p.nombre||'').substring(0,38)}${!p.hasBOM?' <span style=color:var(--orange);font-size:8px;>∅</span>':''}</td>
-                  <td style="padding:2px 4px;font-size:9px;white-space:nowrap;">${p.marca||'?'}</td>
-                  <td style="padding:2px 4px;text-align:center;font-weight:bold;font-size:10px;color:${{A:'var(--green)',B:'var(--blue)',C:'var(--gold)',D:'var(--txt2)'}[p.abc]||'var(--txt2)'};">${p.abc}</td>
-                  <td style="padding:2px 4px;text-align:right;font-weight:bold;">${p.vtaMes>0?Math.round(p.vtaMes).toLocaleString():'<span style=color:var(--txt2)>-</span>'}</td>
-                  <td style="padding:2px 4px;text-align:right;color:var(--txt2);">${p.vta3m>0?Math.round(p.vta3m).toLocaleString():'-'}</td>
-                  <td style="padding:2px 4px;text-align:right;color:${p.stock<=0?'var(--red)':'var(--txt)'};">${Math.round(p.stock).toLocaleString()}</td>
-                  <td style="padding:2px 4px;text-align:right;">${p.hasBOM?insNum(p.insBot):'-'}</td>
-                  <td style="padding:2px 4px;text-align:right;">${p.hasBOM?insNum(p.insEst):'-'}</td>
-                  <td style="padding:2px 4px;text-align:right;">${p.hasBOM?insNum(p.insEse):'-'}</td>
-                  <td style="padding:2px 4px;text-align:right;color:${p.producibles<=0?(p.hasBOM?'var(--red)':'var(--txt2)'):'var(--green)'};">${p.hasBOM?Math.round(p.producibles).toLocaleString():'-'}</td>
-                  <td style="padding:2px 4px;text-align:right;color:${p.prod>0?'var(--green)':'var(--txt2)'};">${p.prod>0?Math.round(p.prod).toLocaleString():'-'}</td>
-                  <td style="padding:2px 4px;text-align:center;font-size:9px;color:${p.fechaProd?'var(--gold)':'var(--txt2)'};">${fmtMes(p.fechaProd)}</td>
-                  <td style="padding:2px 4px;text-align:right;font-weight:bold;">${Math.round(p.disponible).toLocaleString()}</td>
-                  <td style="padding:2px 4px;text-align:center;font-weight:bold;color:${cobClr(p.cobPT)};">${p.cobPT>=999?'∞':p.cobPT+'d'}</td>
-                  <td style="padding:2px 4px;text-align:center;font-weight:bold;color:${cobClr(p.cobTot)};">${p.cobTot>=999?'∞':p.cobTot+'d'}</td>
-                  <td style="padding:2px 4px;text-align:center;font-size:9px;color:${p.cobPT<60?'var(--red)':'var(--txt2)'};">${p.quiebrePT && p.cobPT<999 ? fmtDate(p.quiebrePT) : '-'}</td>
-                  <td style="padding:2px 4px;text-align:center;font-size:10px;white-space:nowrap;">${p.accion}</td>
-                  <td style="padding:2px 4px;font-size:8px;color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.cuello?p.cuello.det+' (stk:'+p.cuello.stk+', rinde:'+p.cuello.rinde+')':''}">${p.cuello?(p.cuello.det||p.cuello.cod).substring(0,18)+' →'+p.cuello.rinde:(p.hasBOM?'-':'')}</td>
-                </tr>
-              `).join('')}
+              ${fabTop.slice(0, MRP_PAGE).map((p, i) => mrpFabRow(p, i, insNum, cobClr, fmtDate, fmtMes)).join('')}
               </tbody></table>
+              ${fabTop.length > MRP_PAGE ? `<div id="mrpFabMore" style="text-align:center;padding:10px;">
+                <button class="btn-outline btn-sm" onclick="mrpLoadMoreFab()" style="font-size:12px;">
+                  Mostrar más (${fabTop.length - MRP_PAGE} filas restantes de ${fabTop.length} total)
+                </button>
+              </div>` : ''}
           </div>
           <p style="color:var(--txt2);font-size:10px;margin-top:6px;">
             📊 ${nFabTotal} PTs fab (${nFabConBOM} BOM, ${nFabSinBOM} sin). ${nSubEnsambles} sub-ens.
@@ -2475,6 +2466,55 @@ function filterMrpFab() {
     const aOk = !a || r.dataset.abc === a;
     r.style.display = mOk && uOk && aOk ? '' : 'none';
   });
+}
+
+// MRP ROW GENERATOR (used for initial render and lazy loading)
+function mrpFabRow(p, i, insNum, cobClr, fmtDate, fmtMes) {
+  return `<tr style="border-bottom:1px solid var(--border);${p.urg>=3?'background:rgba(255,50,50,0.08);':p.urg>=2?'background:rgba(255,165,0,0.05);':''}" data-marca="${p.marca}" data-urg="${p.urg}" data-abc="${p.abc}">
+    <td style="padding:2px 4px;font-family:monospace;font-size:9px;color:var(--txt2);" title="${p.codigo}">${p.codigo}</td>
+    <td style="padding:2px 4px;min-width:220px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(p.nombre||'').replace(/"/g,'&quot;')}${!p.hasBOM?' (sin BOM)':''}">${(p.nombre||'').substring(0,38)}${!p.hasBOM?' <span style=color:var(--orange);font-size:8px;>∅</span>':''}</td>
+    <td style="padding:2px 4px;font-size:9px;white-space:nowrap;">${p.marca||'?'}</td>
+    <td style="padding:2px 4px;text-align:center;font-weight:bold;font-size:10px;color:${{A:'var(--green)',B:'var(--blue)',C:'var(--gold)',D:'var(--txt2)'}[p.abc]||'var(--txt2)'};">${p.abc}</td>
+    <td style="padding:2px 4px;text-align:right;font-weight:bold;">${p.vtaMes>0?Math.round(p.vtaMes).toLocaleString():'<span style=color:var(--txt2)>-</span>'}</td>
+    <td style="padding:2px 4px;text-align:right;color:var(--txt2);">${p.vta3m>0?Math.round(p.vta3m).toLocaleString():'-'}</td>
+    <td style="padding:2px 4px;text-align:right;color:${p.stock<=0?'var(--red)':'var(--txt)'};">${Math.round(p.stock).toLocaleString()}</td>
+    <td style="padding:2px 4px;text-align:right;">${p.hasBOM?insNum(p.insBot):'-'}</td>
+    <td style="padding:2px 4px;text-align:right;">${p.hasBOM?insNum(p.insEst):'-'}</td>
+    <td style="padding:2px 4px;text-align:right;">${p.hasBOM?insNum(p.insEse):'-'}</td>
+    <td style="padding:2px 4px;text-align:right;color:${p.producibles<=0?(p.hasBOM?'var(--red)':'var(--txt2)'):'var(--green)'};">${p.hasBOM?Math.round(p.producibles).toLocaleString():'-'}</td>
+    <td style="padding:2px 4px;text-align:right;color:${p.prod>0?'var(--green)':'var(--txt2)'};">${p.prod>0?Math.round(p.prod).toLocaleString():'-'}</td>
+    <td style="padding:2px 4px;text-align:center;font-size:9px;color:${p.fechaProd?'var(--gold)':'var(--txt2)'};">${fmtMes(p.fechaProd)}</td>
+    <td style="padding:2px 4px;text-align:right;font-weight:bold;">${Math.round(p.disponible).toLocaleString()}</td>
+    <td style="padding:2px 4px;text-align:center;font-weight:bold;color:${cobClr(p.cobPT)};">${p.cobPT>=999?'∞':p.cobPT+'d'}</td>
+    <td style="padding:2px 4px;text-align:center;font-weight:bold;color:${cobClr(p.cobTot)};">${p.cobTot>=999?'∞':p.cobTot+'d'}</td>
+    <td style="padding:2px 4px;text-align:center;font-size:9px;color:${p.cobPT<60?'var(--red)':'var(--txt2)'};">${p.quiebrePT && p.cobPT<999 ? fmtDate(p.quiebrePT) : '-'}</td>
+    <td style="padding:2px 4px;text-align:center;font-size:10px;white-space:nowrap;">${p.accion}</td>
+    <td style="padding:2px 4px;font-size:8px;color:var(--txt2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.cuello?(p.cuello.det||'')+' (stk:'+p.cuello.stk+', rinde:'+p.cuello.rinde+')':''}">${p.cuello?(p.cuello.det||p.cuello.cod).substring(0,18)+' →'+p.cuello.rinde:(p.hasBOM?'-':'')}</td>
+  </tr>`;
+}
+
+function mrpLoadMoreFab() {
+  if (!window._mrpFabAll) return;
+  const h = window._mrpHelpers;
+  const tbody = document.querySelector('#mrpTblFab tbody');
+  if (!tbody) return;
+  const start = window._mrpFabShown;
+  const batch = 100;
+  const end = Math.min(start + batch, window._mrpFabAll.length);
+  let html = '';
+  for (let i = start; i < end; i++) {
+    html += mrpFabRow(window._mrpFabAll[i], i, h.insNum, h.cobClr, h.fmtDate, h.fmtMes);
+  }
+  tbody.insertAdjacentHTML('beforeend', html);
+  window._mrpFabShown = end;
+  // Apply current filters to new rows
+  filterMrpFab();
+  // Update or remove button
+  const btn = document.getElementById('mrpFabMore');
+  if (btn) {
+    if (end >= window._mrpFabAll.length) { btn.remove(); }
+    else { btn.innerHTML = `<button class="btn-outline btn-sm" onclick="mrpLoadMoreFab()" style="font-size:12px;">Mostrar más (${window._mrpFabAll.length - end} restantes)</button>`; }
+  }
 }
 
 // =============================================
