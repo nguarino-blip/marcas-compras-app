@@ -1946,6 +1946,7 @@ async function renderMRPPage(c, _rv) {
       // Fuente primaria: stock_insumos.tipo_insumo_global (clasificado en sync)
       // Fallback: keywords en detalle_insumo del BOM
       let insBot = null, insEst = null, insEse = null;
+      let insEstCaja = null, insEstInterior = null;
       let producibles = 0, cuello = null;
       if (hasBOM) {
         producibles = Infinity;
@@ -1955,18 +1956,15 @@ async function renderMRPPage(c, _rv) {
           const qty = comp.cantidad_formula > 0 ? comp.cantidad_formula : 1;
           const rinde = Math.floor(stk / qty);
 
-          // Clasificar tipo del componente
           const tipoG = ins ? (ins.tipo_insumo_global || '').toLowerCase() : '';
           const det = (comp.detalle_insumo || '').toUpperCase();
           const cat = (comp.categoria || '').toUpperCase();
 
-          // Determinar tipo: prioridad stock_insumos.tipo_insumo_global, luego keywords
           let esFrasco = false, esEstuche = false, esEsencia = false;
           if (tipoG === 'frasco') esFrasco = true;
           else if (tipoG === 'estuche') esEstuche = true;
           else if (tipoG === 'esencia') esEsencia = true;
           else {
-            // Fallback: keywords en detalle o categoría
             if (det.includes('FRASCO') || det.includes('ENVASE') || det.includes('BOTELLA') || det.includes('FLACON')
                 || cat.includes('FRASCO') || cat.includes('ENVASE')) esFrasco = true;
             if (det.includes('ESTUCHE') || det.includes('CAJA') || det.includes('INTERIOR') || det.includes('DISPLAY')
@@ -1976,20 +1974,25 @@ async function renderMRPPage(c, _rv) {
                 || cat.includes('ESENCIA') || cat.includes('FRAGANCIA')) esEsencia = true;
           }
 
-          const esCritico = esFrasco || esEstuche || esEsencia;
-
-          // Guardar stock del tipo (mínimo si hay varios del mismo tipo)
           if (esFrasco) insBot = insBot === null ? stk : Math.max(insBot, stk);
-          if (esEstuche) insEst = insEst === null ? stk : Math.max(insEst, stk);
+          if (esEstuche) {
+            const esEmbalaje = det.includes('EMBALAJE') || det.includes('CARTOCOR');
+            const esInterior = det.includes('INTERIOR');
+            const esCaja = (det.includes('CAJA') || det.includes('ESTUCHE')) && !esInterior && !esEmbalaje;
+            if (esCaja) {
+              insEstCaja = insEstCaja === null ? stk : Math.max(insEstCaja, stk);
+            } else if (esInterior) {
+              insEstInterior = insEstInterior === null ? stk : Math.max(insEstInterior, stk);
+            }
+          }
           if (esEsencia) insEse = insEse === null ? stk : Math.max(insEse, stk);
 
-          // Solo considerar Envase, Esencia y Estuche/Caja para producibilidad
-          // Excluir tapas, collares, válvulas, blotters, etiquetas, etc.
-          if (esCritico && rinde < producibles) {
+          if (rinde < producibles) {
             producibles = rinde;
             cuello = { cod: comp.codigo_insumo, det: comp.detalle_insumo || '', stk, qty, rinde };
           }
         });
+        insEst = insEstCaja !== null ? insEstCaja : insEstInterior;
         if (producibles === Infinity || producibles < 0) producibles = 0;
       }
 
